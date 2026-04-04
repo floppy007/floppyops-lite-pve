@@ -11,7 +11,7 @@
 // ║    5. JavaScript (Dashboard, VMs, Security, etc.)              ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
-define('APP_VERSION', '1.1.1');
+define('APP_VERSION', '1.1.2');
 require_once __DIR__ . '/config.php';
 session_start();
 require_once __DIR__ . '/lang.php';
