@@ -11,7 +11,7 @@
 // ║    5. JavaScript (Dashboard, VMs, Security, etc.)              ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
-define('APP_VERSION', '1.1.2');
+define('APP_VERSION', '1.1.3');
 require_once __DIR__ . '/config.php';
 session_start();
 require_once __DIR__ . '/lang.php';
@@ -592,6 +592,14 @@ function handleNginxAPI(string $action): bool {
         $checks[] = ['id' => 'ipv4_fwd', 'label' => 'IPv4 Forwarding', 'ok' => $ipv4Fwd === '1', 'value' => $ipv4Fwd === '1' ? 'Aktiv' : 'Inaktiv', 'fix' => 'echo 1 > /proc/sys/net/ipv4/ip_forward'];
         $checks[] = ['id' => 'ipv6_fwd', 'label' => 'IPv6 Forwarding', 'ok' => $ipv6Fwd === '1', 'value' => $ipv6Fwd === '1' ? 'Aktiv' : 'Inaktiv', 'fix' => 'echo 1 > /proc/sys/net/ipv6/conf/all/forwarding'];
 
+        // NDP Proxy (needed for IPv6 between bridges, e.g. vmbr1 CTs reaching vmbr0 CTs)
+        $ndpProxy = trim(@file_get_contents('/proc/sys/net/ipv6/conf/all/proxy_ndp') ?? '0');
+        $hasNdpEntries = !empty(trim(shell_exec('ip -6 neigh show proxy 2>/dev/null') ?? ''));
+        // Only flag as problem if IPv6 forwarding is on AND NDP proxy entries exist but proxy_ndp is off
+        $ndpRelevant = $ipv6Fwd === '1' && $hasNdpEntries;
+        $ndpOk = !$ndpRelevant || $ndpProxy === '1';
+        $checks[] = ['id' => 'ndp_proxy', 'label' => 'IPv6 NDP Proxy', 'ok' => $ndpOk, 'value' => $ndpProxy === '1' ? 'Aktiv' : ($ndpRelevant ? 'Inaktiv (NDP Einträge vorhanden!)' : 'Inaktiv'), 'fix' => $ndpOk ? '' : 'ndp_proxy'];
+
         // Bridges (needed for NAT check below)
         $bridges = [];
         $ifRaw = shell_exec('ip -o link show type bridge 2>/dev/null') ?? '';
@@ -646,6 +654,11 @@ function handleNginxAPI(string $action): bool {
                 shell_exec('echo 1 > /proc/sys/net/ipv6/conf/all/forwarding');
                 shell_exec("grep -q 'net.ipv6.conf.all.forwarding' /etc/sysctl.conf || echo 'net.ipv6.conf.all.forwarding=1' | sudo tee -a /etc/sysctl.conf > /dev/null");
                 $out = 'IPv6 Forwarding aktiviert (permanent)';
+                break;
+            case 'ndp_proxy':
+                shell_exec('sysctl -w net.ipv6.conf.all.proxy_ndp=1 > /dev/null 2>&1');
+                shell_exec("grep -q 'net.ipv6.conf.all.proxy_ndp' /etc/sysctl.conf || echo 'net.ipv6.conf.all.proxy_ndp=1' | sudo tee -a /etc/sysctl.conf > /dev/null");
+                $out = 'IPv6 NDP Proxy aktiviert (permanent)';
                 break;
             case 'nginx':
                 $out = shell_exec('sudo systemctl start nginx 2>&1') ?? '';
