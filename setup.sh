@@ -34,16 +34,14 @@ TOTAL_STEPS=7
 while [[ $# -gt 0 ]]; do
     case $1 in
         --domain)  DOMAIN="$2"; shift 2 ;;
-        --dir)     INSTALL_DIR="$2"; shift 2 ;;
         --no-ssl)  SKIP_SSL=true; shift ;;
         --help|-h)
-            echo "FloppyOps Lite PVE — Setup"
+            echo "FloppyOps Lite — Setup"
             echo ""
-            echo "Usage: bash setup.sh [OPTIONS]"
+            echo "Usage: git clone ... /var/www/server-admin && cd /var/www/server-admin && bash setup.sh [OPTIONS]"
             echo ""
             echo "Options:"
             echo "  --domain FQDN    Domain for the panel (enables nginx vHost + SSL)"
-            echo "  --dir /path      Install directory (default: /var/www/server-admin)"
             echo "  --no-ssl         Skip Let's Encrypt SSL certificate"
             echo "  --help           Show this help"
             exit 0
@@ -67,7 +65,7 @@ echo -e "${BLUE}${BOLD}"
 echo "  ┌────────────────────────────────────────────┐"
 echo "  │                                            │"
 echo "  │     FloppyOps Lite PVE                    │"
-echo "  │     Setup Script v1.0                      │"
+echo "  │     Setup Script v1.2.1                    │"
 echo "  │                                            │"
 echo "  └────────────────────────────────────────────┘"
 echo -e "${NC}"
@@ -342,56 +340,34 @@ if [[ "$MOD_NGINX" == "true" ]]; then
 fi
 
 # ══════════════════════════════════════════════════════════
-# STEP 2: App-Dateien
+# STEP 2: App Files
 # ══════════════════════════════════════════════════════════
 
 step "$(L step_files)"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-mkdir -p "$INSTALL_DIR"
-
-# Copy app files
-if [[ -f "$SCRIPT_DIR/index.php" ]]; then
-    cp "$SCRIPT_DIR/index.php" "$INSTALL_DIR/index.php"
-    ok "index.php $(L copied)"
-else
+# Verify we're running from the cloned repo
+if [[ ! -f "$SCRIPT_DIR/index.php" ]]; then
     die "index.php $(L not_found_in) $SCRIPT_DIR"
 fi
 
-if [[ -f "$SCRIPT_DIR/lang.php" ]]; then
-    cp "$SCRIPT_DIR/lang.php" "$INSTALL_DIR/lang.php"
-    ok "lang.php $(L copied)"
-else
-    die "lang.php $(L not_found_in) $SCRIPT_DIR"
-fi
+# Set install dir to script location (git clone target)
+INSTALL_DIR="$SCRIPT_DIR"
 
 # Config
 if [[ -f "$INSTALL_DIR/config.php" ]]; then
     info "config.php $(L exists_keep)"
 else
-    if [[ -f "$SCRIPT_DIR/config.example.php" ]]; then
-        cp "$SCRIPT_DIR/config.example.php" "$INSTALL_DIR/config.php"
-        ok "config.php $(L created)"
-        warn "$(L change_pw)"
-    else
-        cat > "$INSTALL_DIR/config.php" <<'PHPEOF'
-<?php
-define('ADMIN_USER', 'admin');
-define('ADMIN_PASS', 'CHANGE_ME');
-define('NGINX_SITES_DIR', '/etc/nginx/sites-enabled');
-define('NGINX_SITES_AVAILABLE', '/etc/nginx/sites-available');
-define('F2B_LOG', '/var/log/fail2ban.log');
-define('APP_NAME', 'FloppyOps Lite PVE');
-PHPEOF
-        ok "config.php $(L created_new)"
-        warn "$(L change_pw)"
-    fi
+    cp "$INSTALL_DIR/config.example.php" "$INSTALL_DIR/config.php"
+    ok "config.php $(L created)"
+    warn "$(L change_pw)"
 fi
 
 # Permissions
 chown -R www-data:www-data "$INSTALL_DIR"
 chmod 640 "$INSTALL_DIR/config.php"
+chmod +x "$INSTALL_DIR/update.sh" 2>/dev/null || true
 ok "$(L perms_set)"
 
 # ══════════════════════════════════════════════════════════
@@ -438,8 +414,8 @@ server {
     root ${INSTALL_DIR};
     index index.php;
 
-    # IP-Whitelist — anpassen!
-    # allow DEINE.IP.HIER;
+    # IP Whitelist — adjust!
+    # allow YOUR.IP.HERE;
     # allow 10.10.20.0/24;
     # deny all;
 
@@ -541,7 +517,30 @@ fi
 if [[ "$MOD_FAIL2BAN" == "true" ]]; then
     systemctl enable fail2ban >> /tmp/floppyops-lite-setup.log 2>&1 || true
     systemctl start fail2ban >> /tmp/floppyops-lite-setup.log 2>&1 || true
+
+    # Panel login protection
+    touch /var/log/floppyops-lite-auth.log
+    chown www-data:www-data /var/log/floppyops-lite-auth.log
+
+    cat > /etc/fail2ban/filter.d/floppyops-lite.conf <<'F2BFILTER'
+[Definition]
+failregex = LOGIN FAILED user=.* ip=<HOST>
+ignoreregex =
+F2BFILTER
+
+    cat > /etc/fail2ban/jail.d/floppyops-lite.conf <<'F2BJAIL'
+[floppyops-lite]
+enabled = true
+filter = floppyops-lite
+logpath = /var/log/floppyops-lite-auth.log
+maxretry = 5
+findtime = 300
+bantime = 900
+F2BJAIL
+
+    systemctl restart fail2ban >> /tmp/floppyops-lite-setup.log 2>&1 || true
     ok "$(L f2b_activated)"
+    ok "Panel login brute-force protection (5 attempts / 15min ban)"
 else
     info "$(L f2b_label) — $(L skipped)"
 fi
@@ -621,7 +620,7 @@ chmod 440 /etc/sudoers.d/floppyops-lite
 ok "$(L sudoers_created)"
 
 # ══════════════════════════════════════════════════════════
-# STEP 7: Abschluss
+# STEP 7: Finish
 # ══════════════════════════════════════════════════════════
 
 step "$(L step_finish)"

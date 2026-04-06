@@ -549,12 +549,12 @@ function wgWizStep3() {
     // Build remote peer config (what the other side needs to add)
     const localIp = _wgWizData.address.split('/')[0];
     const peerSubnet = _wgWizData.address; // the peer needs to route to our address
-    let remoteConf = '# === Auf der Gegenstelle hinzufügen ===\n\n';
+    let remoteConf = '# === Add on the remote side ===\n\n';
     remoteConf += '[Peer]\n';
-    remoteConf += '# ' + (_wgWizData.iface) + ' auf diesem Server\n';
+    remoteConf += '# ' + (_wgWizData.iface) + ' on this server\n';
     remoteConf += 'PublicKey = ' + _wgWizData.publicKey + '\n';
     if (_wgWizData.psk) remoteConf += 'PresharedKey = ' + _wgWizData.psk + '\n';
-    if (_wgWizData.port) remoteConf += 'Endpoint = DEINE-SERVER-IP:' + _wgWizData.port + '\n';
+    if (_wgWizData.port) remoteConf += 'Endpoint = YOUR-SERVER-IP:' + _wgWizData.port + '\n';
     remoteConf += 'AllowedIPs = ' + localIp + '/32\n';
     remoteConf += 'PersistentKeepalive = ' + _wgWizData.keepalive + '\n';
 

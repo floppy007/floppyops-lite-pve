@@ -1,17 +1,17 @@
 <?php
 // ╔══════════════════════════════════════════════════════════════════╗
 // ║                    FloppyOps Lite — index.php                   ║
-// ║  Single-File Server Management Panel fuer Proxmox VE           ║
+// ║  Single-File Server Management Panel for Proxmox VE            ║
 // ║                                                                ║
-// ║  Aufbau:                                                       ║
-// ║    1. PHP Konfiguration & Authentifizierung                    ║
-// ║    2. API Handler Funktionen (gruppiert)                       ║
+// ║  Structure:                                                    ║
+// ║    1. PHP Configuration & Authentication                       ║
+// ║    2. API Handler Functions (grouped)                          ║
 // ║    3. API Router (Dispatch)                                    ║
-// ║    4. HTML Struktur + CSS Styling                              ║
+// ║    4. HTML Structure + CSS Styling                             ║
 // ║    5. JavaScript (Dashboard, VMs, Security, etc.)              ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
-define('APP_VERSION', '1.2.0');
+define('APP_VERSION', '1.2.1');
 require_once __DIR__ . '/config.php';
 session_start();
 require_once __DIR__ . '/lang.php';
@@ -60,16 +60,25 @@ function authenticateUser(string $user, string $pass, string $method): array {
     return ['ok' => false, 'error' => 'Benutzername oder Passwort falsch'];
 }
 
+// Auto-create auth log if missing
+$authLog = '/var/log/floppyops-lite-auth.log';
+if (!file_exists($authLog)) { @touch($authLog); @chmod($authLog, 0640); }
+
 if (isset($_POST['_login'])) {
     $realm = $_POST['realm'] ?? $authMethod;
-    $authResult = authenticateUser($_POST['user'] ?? '', $_POST['pass'] ?? '', $realm);
+    $loginUser = $_POST['user'] ?? '';
+    $clientIp = $_SERVER['HTTP_X_REAL_IP'] ?? $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    $authResult = authenticateUser($loginUser, $_POST['pass'] ?? '', $realm);
     if ($authResult['ok']) {
         $_SESSION['authed'] = true;
         $_SESSION['auth_user'] = $authResult['user'];
         $_SESSION['auth_method'] = $authResult['method'];
+        @file_put_contents('/var/log/floppyops-lite-auth.log', date('Y-m-d H:i:s') . " LOGIN OK user={$loginUser} ip={$clientIp}\n", FILE_APPEND);
         header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?'));
         exit;
     }
+    sleep(2);
+    @file_put_contents('/var/log/floppyops-lite-auth.log', date('Y-m-d H:i:s') . " LOGIN FAILED user={$loginUser} ip={$clientIp}\n", FILE_APPEND);
     $loginError = $authResult['error'] ?? 'Benutzername oder Passwort falsch';
 }
 if (isset($_GET['logout'])) { session_destroy(); header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?')); exit; }
@@ -304,7 +313,7 @@ select.login-input option{background:#0c0f15;color:var(--text);padding:8px}
 HTML;
 }
 
-// ── CSRF-Token Verwaltung ────────────────────────────────
+// ── CSRF Token Management ────────────────────────────────
 if (empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(32));
 $csrf = $_SESSION['csrf'];
 
@@ -316,9 +325,9 @@ function csrf_check(): void {
 }
 
 // ╔══════════════════════════════════════════════════════════════════╗
-// ║                     API HANDLER FUNKTIONEN                      ║
-// ║  Jede Gruppe gibt true zurueck wenn sie den Request behandelt   ║
-// ║  hat, false wenn der Action-Name nicht passt.                   ║
+// ║                      API HANDLER FUNCTIONS                      ║
+// ║  Each group returns true when it handled the request            ║
+// ║  false if the action name doesn't match.                        ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
 // ── Dashboard API ──────────────────────────────────────────────────
@@ -333,7 +342,7 @@ function csrf_check(): void {
  * @return bool true wenn behandelt
  */
 function handleDashboardAPI(string $action): bool {
-    // GET: Echtzeit-System-Statistiken (CPU, RAM, Disk, Netzwerk, F2B, Nginx)
+    // GET: Real-time system statistics (CPU, RAM, Disk, Network, F2B, Nginx)
     if ($action === 'stats') {
         $uptime = trim(shell_exec('uptime -p 2>/dev/null') ?? '');
         $uptimeSince = trim(shell_exec('uptime -s 2>/dev/null') ?? '');
@@ -459,7 +468,7 @@ function handleDashboardAPI(string $action): bool {
  * @return bool true wenn behandelt
  */
 function handleFail2banAPI(string $action): bool {
-    // GET: Alle Fail2ban Jails mit Ban-Statistiken
+    // GET: All Fail2ban jails with ban statistics
     if ($action === 'f2b-jails') {
         $raw = shell_exec('sudo fail2ban-client status 2>/dev/null') ?? '';
         preg_match('/Jail list:\s*(.*)$/m', $raw, $m);
@@ -486,7 +495,7 @@ function handleFail2banAPI(string $action): bool {
         return true;
     }
 
-    // GET: Letzte 80 Zeilen aus dem Fail2ban Ban-Log
+    // GET: Last 80 lines from the Fail2ban ban log
     if ($action === 'f2b-log') {
         $log = F2B_LOG;
         $lines = [];
@@ -501,7 +510,7 @@ function handleFail2banAPI(string $action): bool {
         return true;
     }
 
-    // GET: Fail2ban-Konfigurationsdatei lesen (jail.local oder Filter)
+    // GET: Read Fail2ban config file (jail.local or filter)
     if ($action === 'f2b-config') {
         $file = $_GET['file'] ?? 'jail.local';
         $allowed = ['jail.local', 'jail.conf'];
@@ -522,7 +531,7 @@ function handleFail2banAPI(string $action): bool {
         return true;
     }
 
-    // POST: Config speichern und Fail2ban neustarten
+    // POST: Save config and restart Fail2ban
     if ($action === 'f2b-save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $file = $_POST['file'] ?? '';
@@ -540,7 +549,7 @@ function handleFail2banAPI(string $action): bool {
         return true;
     }
 
-    // GET: Verfuegbare Filter-Dateien auflisten
+    // GET: List available filter files
     if ($action === 'f2b-filters') {
         $files = glob('/etc/fail2ban/filter.d/*.conf');
         $filters = array_map(fn($f) => 'filter.d/' . basename($f), $files ?: []);
@@ -549,7 +558,7 @@ function handleFail2banAPI(string $action): bool {
         return true;
     }
 
-    // POST: IP aus einem Jail entbannen
+    // POST: Unban IP from a jail
     if ($action === 'f2b-unban' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $jail = $_POST['jail'] ?? '';
@@ -727,7 +736,7 @@ function handleNginxAPI(string $action): bool {
         return true;
     }
 
-    // GET: Alle Nginx-Sites mit Domains, Proxy-Target, SSL-Status
+    // GET: All Nginx sites with domains, proxy target, SSL status
     if ($action === 'nginx-sites') {
         $dir = NGINX_SITES_DIR;
         $sites = [];
@@ -775,7 +784,7 @@ function handleNginxAPI(string $action): bool {
         return true;
     }
 
-    // POST: Neue Reverse-Proxy Site erstellen (optional mit SSL/Certbot)
+    // POST: Create new reverse proxy site (optionally with SSL/Certbot)
     if ($action === 'nginx-add' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $domainRaw = trim($_POST['domain'] ?? '');
@@ -954,7 +963,7 @@ function handleNginxAPI(string $action): bool {
         return true;
     }
 
-    // POST: Nginx Site-Config bearbeiten und Syntax pruefen
+    // POST: Edit Nginx site config and check syntax
     if ($action === 'nginx-save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $file = basename($_POST['file'] ?? '');
@@ -983,7 +992,7 @@ function handleNginxAPI(string $action): bool {
         return true;
     }
 
-    // POST: Nginx Site entfernen (sites-enabled + sites-available)
+    // POST: Remove Nginx site (sites-enabled + sites-available)
     if ($action === 'nginx-delete' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $file = basename($_POST['file'] ?? '');
@@ -1034,7 +1043,7 @@ function handleNginxAPI(string $action): bool {
         return true;
     }
 
-    // POST: SSL-Zertifikat erneuern via Certbot
+    // POST: Renew SSL certificate via Certbot
     if ($action === 'nginx-renew' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $domain = trim($_POST['domain'] ?? '');
@@ -1053,7 +1062,7 @@ function handleNginxAPI(string $action): bool {
         return true;
     }
 
-    // SSE: Nginx Site erstellen mit Live-Progress
+    // SSE: Create Nginx site with live progress
     if ($action === 'nginx-add-stream' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         set_time_limit(120);
@@ -1216,7 +1225,7 @@ function handleNginxAPI(string $action): bool {
         return true;
     }
 
-    // SSE: SSL-Zertifikat erneuern mit Live-Progress
+    // SSE: Renew SSL certificate with live progress
     if ($action === 'nginx-renew-stream' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         set_time_limit(120);
@@ -1261,7 +1270,7 @@ function handleNginxAPI(string $action): bool {
         return true;
     }
 
-    // GET: SSL Health Check — DNS, Zertifikat-Match, Ablauf, IPv4/IPv6
+    // GET: SSL Health Check — DNS, certificate match, expiry, IPv4/IPv6
     if ($action === 'ssl-health') {
         $dir = defined('NGINX_SITES_DIR') ? NGINX_SITES_DIR : '/etc/nginx/sites-enabled';
         $serverIps = [];
@@ -1363,7 +1372,7 @@ function handleNginxAPI(string $action): bool {
         return true;
     }
 
-    // POST: ipv6only=on aus Nginx-Config entfernen
+    // POST: Remove ipv6only=on from Nginx config
     if ($action === 'ssl-fix-ipv6only' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $file = $_POST['file'] ?? '';
@@ -1386,7 +1395,7 @@ function handleNginxAPI(string $action): bool {
         return true;
     }
 
-    // POST: Nginx Config testen und neu laden
+    // POST: Test Nginx config and reload
     if ($action === 'nginx-reload' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $test = shell_exec('sudo nginx -t 2>&1');
@@ -1414,7 +1423,7 @@ function handleNginxAPI(string $action): bool {
  * @return bool true wenn behandelt
  */
 function handleVmsAPI(string $action): bool {
-    // GET: Alle VMs und CTs auf diesem Node via pvesh
+    // GET: All VMs and CTs on this node via pvesh
     if ($action === 'pve-vms') {
         $cacheFile = '/tmp/floppyops-lite-pve-vms.json';
         $force = ($_GET['force'] ?? '') === '1';
@@ -1513,7 +1522,7 @@ function handleVmsAPI(string $action): bool {
         return true;
     }
 
-    // POST: VM/CT klonen (Full/Linked, mit Temp-Snapshot fuer laufende CTs)
+    // POST: Clone VM/CT (Full/Linked, with temp snapshot for running CTs)
     if ($action === 'pve-clone' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $vmid = (int)($_POST['vmid'] ?? 0);
@@ -1575,7 +1584,7 @@ function handleVmsAPI(string $action): bool {
         return true;
     }
 
-    // GET: VM/CT Konfiguration lesen
+    // GET: Read VM/CT configuration
     if ($action === 'pve-config') {
         $vmid = (int)($_GET['vmid'] ?? 0);
         $type = $_GET['type'] ?? 'lxc';
@@ -1588,7 +1597,7 @@ function handleVmsAPI(string $action): bool {
         return true;
     }
 
-    // POST: VM/CT Hardware aendern (CPU, RAM, Swap, Onboot, Netzwerk)
+    // POST: Change VM/CT hardware (CPU, RAM, Swap, Onboot, Network)
     if ($action === 'pve-setconfig' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $vmid = (int)($_POST['vmid'] ?? 0);
@@ -1618,7 +1627,7 @@ function handleVmsAPI(string $action): bool {
         return true;
     }
 
-    // POST: Neue VM/CT aus ZFS-Snapshot erstellen (ZFS-Level Clone)
+    // POST: Create new VM/CT from ZFS snapshot (ZFS-level clone)
     if ($action === 'pve-snap-clone' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $snapshot = trim($_POST['snapshot'] ?? ''); // e.g. data/subvol-100-disk-0@zfs-auto-snap_...
@@ -1795,7 +1804,7 @@ function handleVmsAPI(string $action): bool {
         return true;
     }
 
-    // POST: VM/CT starten, stoppen, neustarten oder herunterfahren
+    // POST: Start, stop, restart or shutdown VM/CT
     if ($action === 'pve-control' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $vmid = (int)($_POST['vmid'] ?? 0);
@@ -1814,7 +1823,7 @@ function handleVmsAPI(string $action): bool {
         return true;
     }
 
-    // GET: Verfuegbare PVE-Storages (fuer Clone-Ziel)
+    // GET: Available PVE storages (for clone target)
     if ($action === 'pve-storages') {
         $node = trim(shell_exec('hostname 2>/dev/null') ?? '');
         $raw = shell_exec("sudo pvesh get /nodes/$node/storage --output-format json 2>/dev/null") ?? '[]';
@@ -1845,7 +1854,7 @@ function handleVmsAPI(string $action): bool {
  * @return bool true wenn behandelt
  */
 function handleZfsAPI(string $action): bool {
-    // GET: ZFS Pools, Datasets, Snapshots und Auto-Snapshot Status
+    // GET: ZFS pools, datasets, snapshots and auto-snapshot status
     if ($action === 'zfs-status') {
         // Cache for 5 seconds to avoid repeated slow calls
         $cacheFile = '/tmp/floppyops-lite-zfs-cache.json';
@@ -1924,7 +1933,7 @@ function handleZfsAPI(string $action): bool {
         return true;
     }
 
-    // POST: Manuellen ZFS Snapshot erstellen
+    // POST: Create manual ZFS snapshot
     if ($action === 'zfs-snapshot' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $dataset = trim($_POST['dataset'] ?? '');
@@ -1940,7 +1949,7 @@ function handleZfsAPI(string $action): bool {
         return true;
     }
 
-    // POST: ZFS Snapshot loeschen
+    // POST: Delete ZFS snapshot
     if ($action === 'zfs-destroy-snap' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $snap = trim($_POST['snapshot'] ?? '');
@@ -1953,7 +1962,7 @@ function handleZfsAPI(string $action): bool {
         return true;
     }
 
-    // POST: ZFS Rollback auf Snapshot (loescht neuere Snapshots)
+    // POST: ZFS rollback to snapshot (deletes newer snapshots)
     if ($action === 'zfs-rollback' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $snap = trim($_POST['snapshot'] ?? '');
@@ -1967,7 +1976,7 @@ function handleZfsAPI(string $action): bool {
         return true;
     }
 
-    // POST: ZFS Snapshot in neues Dataset klonen
+    // POST: Clone ZFS snapshot into new dataset
     if ($action === 'zfs-clone' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $snap = trim($_POST['snapshot'] ?? '');
@@ -1985,7 +1994,7 @@ function handleZfsAPI(string $action): bool {
         return true;
     }
 
-    // GET: Auto-Snapshot Konfiguration pro Dataset
+    // GET: Auto-snapshot configuration per dataset
     if ($action === 'zfs-auto-config') {
         $dsRaw = shell_exec('sudo /usr/sbin/zfs list -Hp -o name 2>/dev/null') ?? '';
         $datasets = array_filter(explode("\n", trim($dsRaw)));
@@ -1998,7 +2007,7 @@ function handleZfsAPI(string $action): bool {
         return true;
     }
 
-    // POST: Auto-Snapshot fuer ein Dataset aktivieren/deaktivieren
+    // POST: Enable/disable auto-snapshot for a dataset
     if ($action === 'zfs-auto-toggle' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $dataset = trim($_POST['dataset'] ?? '');
@@ -2013,7 +2022,7 @@ function handleZfsAPI(string $action): bool {
         return true;
     }
 
-    // POST: Retention (--keep=N) in Cron-Datei aendern
+    // POST: Change retention (--keep=N) in cron file
     if ($action === 'zfs-set-retention' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $label = trim($_POST['label'] ?? '');
@@ -2069,7 +2078,7 @@ function wgWriteConf(string $path, string $content): bool {
 }
 
 function handleWireguardAPI(string $action): bool {
-    // GET: WireGuard Status aller Interfaces + Peers
+    // GET: WireGuard status of all interfaces + peers
     if ($action === 'wg-status') {
         $raw = shell_exec('sudo /usr/bin/wg show all dump 2>/dev/null') ?? '';
         $lines = array_filter(explode("\n", trim($raw)));
@@ -2207,7 +2216,7 @@ function handleWireguardAPI(string $action): bool {
         return true;
     }
 
-    // GET: WireGuard Interface-Config lesen
+    // GET: Read WireGuard interface config
     if ($action === 'wg-config') {
         $iface = preg_replace('/[^a-zA-Z0-9]/', '', $_GET['iface'] ?? 'wg0');
         $path = "/etc/wireguard/$iface.conf";
@@ -2220,7 +2229,7 @@ function handleWireguardAPI(string $action): bool {
         return true;
     }
 
-    // POST: WireGuard Config speichern
+    // POST: Save WireGuard config
     if ($action === 'wg-save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $iface = preg_replace('/[^a-zA-Z0-9]/', '', $_POST['iface'] ?? '');
@@ -2235,7 +2244,7 @@ function handleWireguardAPI(string $action): bool {
         return true;
     }
 
-    // GET: Neues WireGuard Keypair + PSK generieren
+    // GET: Generate new WireGuard keypair + PSK
     if ($action === 'wg-genkeys') {
         $privkey = trim(shell_exec('wg genkey 2>/dev/null') ?? '');
         $pubkey = $privkey ? trim(shell_exec("echo '$privkey' | wg pubkey 2>/dev/null") ?? '') : '';
@@ -2244,7 +2253,7 @@ function handleWireguardAPI(string $action): bool {
         return true;
     }
 
-    // GET: Netzwerk-Interfaces auflisten (fuer PostUp Wizard)
+    // GET: List network interfaces (for PostUp wizard)
     if ($action === 'wg-net-ifaces') {
         $raw = shell_exec("ip -o link show 2>/dev/null") ?? '';
         $ifaces = [];
@@ -2261,7 +2270,7 @@ function handleWireguardAPI(string $action): bool {
         return true;
     }
 
-    // GET: Vorhandene WireGuard-Interfaces auflisten
+    // GET: List existing WireGuard interfaces
     if ($action === 'wg-list-ifaces') {
         $existing = [];
         foreach (glob('/etc/wireguard/wg*.conf') as $f) {
@@ -2271,7 +2280,7 @@ function handleWireguardAPI(string $action): bool {
         return true;
     }
 
-    // POST: Neuen WireGuard Tunnel erstellen und optional starten
+    // POST: Create new WireGuard tunnel and optionally start
     if ($action === 'wg-create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $iface = preg_replace('/[^a-zA-Z0-9]/', '', $_POST['iface'] ?? '');
@@ -2321,7 +2330,7 @@ function handleWireguardAPI(string $action): bool {
             $started = trim(shell_exec("systemctl is-active wg-quick@$iface 2>/dev/null") ?? '') === 'active';
         }
 
-        // Firewall: Port in PVE Firewall eintragen wenn gewuenscht
+        // Firewall: Add port to PVE Firewall if requested
         $fwAdded = false;
         $addFw = ($_POST['add_firewall'] ?? '') === '1';
         if ($addFw && $listenPort > 0) {
@@ -2340,7 +2349,7 @@ function handleWireguardAPI(string $action): bool {
         return true;
     }
 
-    // POST: WireGuard Tunnel stoppen und Config loeschen
+    // POST: Stop WireGuard tunnel and delete config
     if ($action === 'wg-delete' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $iface = preg_replace('/[^a-zA-Z0-9]/', '', $_POST['iface'] ?? '');
@@ -2354,7 +2363,7 @@ function handleWireguardAPI(string $action): bool {
         return true;
     }
 
-    // POST: WireGuard Interface starten/stoppen/neustarten
+    // POST: Start/stop/restart WireGuard interface
     if ($action === 'wg-control' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $iface = preg_replace('/[^a-zA-Z0-9]/', '', $_POST['iface'] ?? '');
@@ -2369,7 +2378,7 @@ function handleWireguardAPI(string $action): bool {
         return true;
     }
 
-    // POST: WireGuard Config importieren (von anderem VPN-Server)
+    // POST: Import WireGuard config (from another VPN server)
     if ($action === 'wg-import' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $iface = preg_replace('/[^a-zA-Z0-9]/', '', $_POST['iface'] ?? '');
@@ -2437,7 +2446,7 @@ function handleWireguardAPI(string $action): bool {
         return true;
     }
 
-    // GET: Server-Info fuer ein Interface (Public Key, Listen Port, Public IP)
+    // GET: Server info for an interface (Public Key, Listen Port, Public IP)
     if ($action === 'wg-server-info') {
         $iface = preg_replace('/[^a-zA-Z0-9]/', '', $_GET['iface'] ?? '');
         if (!$iface) { echo json_encode(['ok' => false, 'error' => 'Kein Interface']); return true; }
@@ -2482,7 +2491,7 @@ function handleWireguardAPI(string $action): bool {
         return true;
     }
 
-    // POST: Peer zu bestehendem Interface hinzufuegen
+    // POST: Add peer to existing interface
     if ($action === 'wg-add-peer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $iface = preg_replace('/[^a-zA-Z0-9]/', '', $_POST['iface'] ?? '');
@@ -2544,7 +2553,7 @@ function handleWireguardAPI(string $action): bool {
         return true;
     }
 
-    // POST: Peer in Config aktualisieren
+    // POST: Update peer in config
     if ($action === 'wg-update-peer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $iface = preg_replace('/[^a-zA-Z0-9]/', '', $_POST['iface'] ?? '');
@@ -2596,7 +2605,7 @@ function handleWireguardAPI(string $action): bool {
         return true;
     }
 
-    // POST: Peer von Interface entfernen
+    // POST: Remove peer from interface
     if ($action === 'wg-remove-peer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $iface = preg_replace('/[^a-zA-Z0-9]/', '', $_POST['iface'] ?? '');
@@ -2712,44 +2721,21 @@ function handleUpdatesAPI(string $action): bool {
         return true;
     }
 
-    // POST: Update durchfuehren (git pull oder Direct Download)
+    // POST: Perform update via update.sh (single source of truth)
     if ($action === 'update-pull' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
-        $installDir = __DIR__;
-        $isGit = is_dir($installDir . '/.git') || is_dir(dirname($installDir) . '/.git');
-        if ($isGit && !is_dir($installDir . '/.git')) $installDir = dirname($installDir);
-
-        if ($isGit) {
-            // Git-based update
-            $out = shell_exec('cd ' . escapeshellarg($installDir) . ' && git pull origin main 2>&1') ?? '';
-            $ok = str_contains($out, 'Already up to date') || str_contains($out, 'Fast-forward') || str_contains($out, 'files changed');
-            if ($ok && $installDir !== __DIR__) {
-                foreach (['index.php', 'lang.php'] as $f) {
-                    if (file_exists($installDir . '/' . $f)) copy($installDir . '/' . $f, __DIR__ . '/' . $f);
-                }
-            }
-        } else {
-            // Direct download from GitHub
-            $ctx = stream_context_create(['http' => ['timeout' => 15, 'header' => "User-Agent: FloppyOps-Lite\r\n"]]);
-            $ok = true; $out = '';
-            foreach (['index.php', 'lang.php'] as $f) {
-                $content = @file_get_contents("https://raw.githubusercontent.com/floppy007/floppyops-lite/main/{$f}", false, $ctx);
-                if ($content) {
-                    file_put_contents(__DIR__ . '/' . $f, $content);
-                    $out .= "{$f} aktualisiert\n";
-                } else {
-                    $out .= "{$f} Download fehlgeschlagen\n";
-                    $ok = false;
-                }
-            }
+        $updateScript = __DIR__ . '/update.sh';
+        if (!file_exists($updateScript)) {
+            echo json_encode(['ok' => false, 'output' => 'update.sh not found']);
+            return true;
         }
-        // Reload PHP-FPM
-        shell_exec('sudo systemctl reload php*-fpm 2>&1 || sudo systemctl restart php*-fpm 2>&1');
-        echo json_encode(['ok' => $ok, 'output' => trim($out)]);
+        $out = shell_exec('sudo bash ' . escapeshellarg($updateScript) . ' 2>&1') ?? '';
+        $ok = str_contains($out, 'Update complete') || str_contains($out, 'Already up to date');
+        echo json_encode(['ok' => $ok, 'output' => trim(preg_replace('/\x1b\[[0-9;]*m/', '', $out))]);
         return true;
     }
 
-    // GET: PVE Repository-Status (Enterprise/No-Sub, Subscription)
+    // GET: PVE repository status (Enterprise/No-Sub, Subscription)
     if ($action === 'repo-check') {
         $codename = trim(shell_exec('lsb_release -cs 2>/dev/null') ?? 'bookworm');
         $isTrixie = ($codename === 'trixie');
@@ -2852,7 +2838,7 @@ function handleUpdatesAPI(string $action): bool {
         return true;
     }
 
-    // POST: Repository aktivieren/deaktivieren
+    // POST: Enable/disable repository
     if ($action === 'repo-toggle' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $file = trim($_POST['file'] ?? '');
@@ -2899,7 +2885,7 @@ function handleUpdatesAPI(string $action): bool {
         return true;
     }
 
-    // POST: No-Subscription Repository hinzufuegen
+    // POST: Add no-subscription repository
     if ($action === 'repo-add-nosub' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $output = [];
@@ -2921,7 +2907,7 @@ function handleUpdatesAPI(string $action): bool {
         return true;
     }
 
-    // GET: Verfuegbare apt-Updates auflisten
+    // GET: List available apt updates
     if ($action === 'apt-check') {
         $updates = [];
         $raw = shell_exec('apt list --upgradable 2>/dev/null') ?? '';
@@ -2956,28 +2942,18 @@ function handleUpdatesAPI(string $action): bool {
         return true;
     }
 
-    // POST: App Auto-Update Cron konfigurieren
+    // POST: Configure app auto-update cron
     if ($action === 'app-auto-update-save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $enabled = ($_POST['enabled'] ?? '') === '1';
         $day = (int)($_POST['day'] ?? 0);
         $hour = max(0, min(23, (int)($_POST['hour'] ?? 4)));
         $cronFile = '/etc/cron.d/floppyops-lite-app-update';
-        @unlink('/etc/cron.daily/floppyops-lite-app-update'); // remove old format
+        @unlink('/etc/cron.daily/floppyops-lite-app-update');
         if ($enabled) {
             $dayField = $day === 0 ? '*' : (string)$day;
-            $installDir = __DIR__;
-            $isGit = is_dir($installDir . '/.git') || is_dir(dirname($installDir) . '/.git');
-            if ($isGit) {
-                $gitDir = is_dir($installDir . '/.git') ? $installDir : dirname($installDir);
-                $cmd = "cd {$gitDir} && git pull origin main -q 2>/dev/null";
-                if ($gitDir !== $installDir) $cmd .= " && cp {$gitDir}/index.php {$installDir}/index.php && cp {$gitDir}/lang.php {$installDir}/lang.php";
-            } else {
-                $cmd = "curl -sf https://raw.githubusercontent.com/floppy007/floppyops-lite/main/index.php -o " . escapeshellarg($installDir . '/index.php');
-                $cmd .= " && curl -sf https://raw.githubusercontent.com/floppy007/floppyops-lite/main/lang.php -o " . escapeshellarg($installDir . '/lang.php');
-            }
-            $cmd .= " && systemctl reload php*-fpm 2>/dev/null";
-            $script = "# FloppyOps Lite App Auto-Update\n0 {$hour} * * {$dayField} root {$cmd} > /var/log/floppyops-lite-app-update.log 2>&1\n";
+            $updateScript = __DIR__ . '/update.sh';
+            $script = "# FloppyOps Lite App Auto-Update\n0 {$hour} * * {$dayField} root bash {$updateScript} > /var/log/floppyops-lite-app-update.log 2>&1\n";
             file_put_contents($cronFile, $script);
             chmod($cronFile, 0644);
         } else {
@@ -2987,7 +2963,7 @@ function handleUpdatesAPI(string $action): bool {
         return true;
     }
 
-    // GET: App Auto-Update Cron-Status lesen
+    // GET: Read app auto-update cron status
     if ($action === 'app-auto-update-status') {
         $cronFile = '/etc/cron.d/floppyops-lite-app-update';
         $oldCron = '/etc/cron.daily/floppyops-lite-app-update';
@@ -3003,7 +2979,7 @@ function handleUpdatesAPI(string $action): bool {
         return true;
     }
 
-    // POST: System Auto-Update Cron konfigurieren
+    // POST: Configure system auto-update cron
     if ($action === 'auto-update-save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $enabled = ($_POST['enabled'] ?? '') === '1';
@@ -3025,7 +3001,7 @@ function handleUpdatesAPI(string $action): bool {
         return true;
     }
 
-    // GET: System Auto-Update Cron-Status lesen
+    // GET: Read system auto-update cron status
     if ($action === 'auto-update-status') {
         $cronFile = '/etc/cron.d/floppyops-lite-update';
         $oldCron = '/etc/cron.daily/floppyops-lite-update';
@@ -3058,7 +3034,7 @@ function handleUpdatesAPI(string $action): bool {
  * @return bool true wenn behandelt
  */
 function handleSecurityAPI(string $action): bool {
-    // GET: Port-Scan + PVE Firewall-Status (Risikobewertung)
+    // GET: Port scan + PVE firewall status (risk assessment)
     if ($action === 'sec-scan') {
         $node = trim(shell_exec('hostname -s 2>/dev/null') ?? '');
 
@@ -3140,7 +3116,7 @@ function handleSecurityAPI(string $action): bool {
         return true;
     }
 
-    // GET: PVE Firewall-Regeln lesen (Node + Datacenter)
+    // GET: Read PVE firewall rules (Node + Datacenter)
     if ($action === 'sec-fw-rules') {
         $node = trim(shell_exec('hostname -s 2>/dev/null') ?? '');
         $nodeRules = json_decode(shell_exec("sudo pvesh get /nodes/" . escapeshellarg($node) . "/firewall/rules --output-format json 2>/dev/null") ?? '[]', true) ?: [];
@@ -3149,7 +3125,7 @@ function handleSecurityAPI(string $action): bool {
         return true;
     }
 
-    // POST: PVE Firewall aktivieren (mit SSH/WebUI Safety)
+    // POST: Enable PVE Firewall (with SSH/WebUI safety)
     if ($action === 'sec-fw-enable' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $node = trim(shell_exec('hostname -s 2>/dev/null') ?? '');
@@ -3176,7 +3152,7 @@ function handleSecurityAPI(string $action): bool {
         return true;
     }
 
-    // POST: Port blockieren (DROP Regel)
+    // POST: Block port (DROP rule)
     if ($action === 'sec-fw-block' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $node = trim(shell_exec('hostname -s 2>/dev/null') ?? '');
@@ -3190,7 +3166,7 @@ function handleSecurityAPI(string $action): bool {
         return true;
     }
 
-    // POST: Neue Firewall-Regel hinzufuegen
+    // POST: Add new firewall rule
     if ($action === 'sec-fw-add-rule' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $node = trim(shell_exec('hostname -s 2>/dev/null') ?? '');
@@ -3216,7 +3192,7 @@ function handleSecurityAPI(string $action): bool {
         return true;
     }
 
-    // POST: Standard-Regelsatz anwenden
+    // POST: Apply default rule set
     if ($action === 'sec-fw-defaults' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $node = trim(shell_exec('hostname -s 2>/dev/null') ?? '');
@@ -3270,7 +3246,7 @@ function handleSecurityAPI(string $action): bool {
         return true;
     }
 
-    // POST: Firewall-Regel loeschen
+    // POST: Delete firewall rule
     if ($action === 'sec-fw-delete-rule' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $node = trim(shell_exec('hostname -s 2>/dev/null') ?? '');
@@ -3473,13 +3449,13 @@ function handleSecurityAPI(string $action): bool {
  * @return bool true wenn behandelt
  */
 function handleFirewallAPI(string $action): bool {
-    // GET: Alle Firewall-Templates (Builtin + Custom + Assignments)
+    // GET: All firewall templates (builtin + custom + assignments)
     if ($action === 'fw-templates') {
         echo json_encode(['ok' => true, ...loadFwTemplates()]);
         return true;
     }
 
-    // POST: Custom Template erstellen oder bearbeiten
+    // POST: Create or edit custom template
     if ($action === 'fw-template-save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $data = json_decode(file_get_contents('php://input'), true) ?: $_POST;
@@ -3524,7 +3500,7 @@ function handleFirewallAPI(string $action): bool {
         return true;
     }
 
-    // POST: Custom Template loeschen
+    // POST: Delete custom template
     if ($action === 'fw-template-delete' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $id = $_POST['id'] ?? '';
@@ -3535,7 +3511,7 @@ function handleFirewallAPI(string $action): bool {
         return true;
     }
 
-    // GET: Alle VMs/CTs mit Firewall-Status und Template-Zuweisung
+    // GET: All VMs/CTs with firewall status and template assignment
     if ($action === 'fw-vm-list') {
         $fwCache = '/tmp/floppyops-lite-fw-vmlist.json';
         if (file_exists($fwCache) && (time() - filemtime($fwCache)) < 30) {
@@ -3600,7 +3576,7 @@ function handleFirewallAPI(string $action): bool {
         return true;
     }
 
-    // GET: Firewall-Regeln einer einzelnen VM/CT
+    // GET: Firewall rules of a single VM/CT
     if ($action === 'fw-vm-rules') {
         $node = trim(shell_exec('hostname 2>/dev/null') ?? '');
         $vmid = (int)($_GET['vmid'] ?? 0);
@@ -3612,7 +3588,7 @@ function handleFirewallAPI(string $action): bool {
         return true;
     }
 
-    // POST: Template auf VM/CT anwenden (Duplikate werden uebersprungen)
+    // POST: Apply template to VM/CT (duplicates are skipped)
     if ($action === 'fw-vm-apply-template' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $node = trim(shell_exec('hostname 2>/dev/null') ?? '');
@@ -3695,7 +3671,7 @@ function handleFirewallAPI(string $action): bool {
         return true;
     }
 
-    // POST: Firewall-Regel einer VM/CT loeschen
+    // POST: Delete firewall rule of a VM/CT
     if ($action === 'fw-vm-delete-rule' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $node = trim(shell_exec('hostname 2>/dev/null') ?? '');
@@ -3708,7 +3684,7 @@ function handleFirewallAPI(string $action): bool {
         return true;
     }
 
-    // POST: Neue Firewall-Regel zu VM/CT hinzufuegen
+    // POST: Add new firewall rule to VM/CT
     if ($action === 'fw-vm-add-rule' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $node = trim(shell_exec('hostname 2>/dev/null') ?? '');
@@ -3744,8 +3720,8 @@ function handleFirewallAPI(string $action): bool {
 }
 
 // ── API Router ──────────────────────────────────────────────────────
-// Dispatch: Jede Handler-Funktion wird der Reihe nach aufgerufen.
-// Die erste die true zurueckgibt hat den Request behandelt.
+// Dispatch: Each handler function is called in order.
+// The first one returning true has handled the request.
 if (isset($_GET['api'])) {
     $action = $_GET['api'];
     $sseActions = ['nginx-add-stream', 'nginx-renew-stream'];
@@ -3763,7 +3739,7 @@ if (isset($_GET['api'])) {
     if (handleSecurityAPI($action)) exit;
     if (handleFirewallAPI($action)) exit;
 
-    // Kein Handler hat den Request behandelt
+    // No handler matched the request
     http_response_code(404);
     echo json_encode(['error' => 'Unknown API']);
     exit;
@@ -6275,7 +6251,7 @@ function toast(msg, type = 'success') {
     setTimeout(() => el.remove(), 4000);
 }
 
-// ── API Helper (fetch-Wrapper mit CSRF) ─────────────
+// ── API Helper (fetch wrapper with CSRF) ─────────────
 async function api(endpoint, method = 'GET', data = null) {
     const opts = { method };
     if (data) {
@@ -6557,7 +6533,7 @@ async function nginxApplyFix(fixId, extra) {
     } catch (e) { toast('Fehler: ' + e.message, 'error'); }
 }
 
-// ── Nginx Sites Verwaltung ──────────────────────────
+// ── Nginx Sites Management ──────────────────────────
 let sitesData = [];
 
 async function loadNginx() {
@@ -7862,7 +7838,7 @@ function stopWgGraph() {
     if (wgStatusTimer) { clearInterval(wgStatusTimer); wgStatusTimer = null; }
 }
 
-// ── WireGuard Tunnel-Verwaltung ─────────────────────
+// ── WireGuard Tunnel Management ─────────────────────
 async function loadWg() {
     try {
         const data = await api('wg-status');
@@ -8129,7 +8105,7 @@ async function wgControl(iface, cmd) {
     } catch (e) { toast('Fehler: ' + e.message, 'error'); }
 }
 
-// ── WireGuard Wizard (Schritt-fuer-Schritt Tunnel-Erstellung) ──
+// ── WireGuard Wizard (step-by-step tunnel creation) ──
 let _wgWizData = {};
 
 async function wgWizardOpen() {
@@ -8382,12 +8358,12 @@ function wgWizStep3() {
     // Build remote peer config (what the other side needs to add)
     const localIp = _wgWizData.address.split('/')[0];
     const peerSubnet = _wgWizData.address; // the peer needs to route to our address
-    let remoteConf = '# === Auf der Gegenstelle hinzufügen ===\n\n';
+    let remoteConf = '# === Add on the remote side ===\n\n';
     remoteConf += '[Peer]\n';
-    remoteConf += '# ' + (_wgWizData.iface) + ' auf diesem Server\n';
+    remoteConf += '# ' + (_wgWizData.iface) + ' on this server\n';
     remoteConf += 'PublicKey = ' + _wgWizData.publicKey + '\n';
     if (_wgWizData.psk) remoteConf += 'PresharedKey = ' + _wgWizData.psk + '\n';
-    if (_wgWizData.port) remoteConf += 'Endpoint = DEINE-SERVER-IP:' + _wgWizData.port + '\n';
+    if (_wgWizData.port) remoteConf += 'Endpoint = YOUR-SERVER-IP:' + _wgWizData.port + '\n';
     remoteConf += 'AllowedIPs = ' + localIp + '/32\n';
     remoteConf += 'PersistentKeepalive = ' + _wgWizData.keepalive + '\n';
 
@@ -9230,7 +9206,7 @@ async function secSaveRule() {
 }
 
 // ┌──────────────────────────────────────────────────────────┐
-// │              Firewall Templates: VM/CT Regelsaetze        │
+// │              Firewall Templates: VM/CT Rule Sets           │
 // └──────────────────────────────────────────────────────────┘
 const FW_ICONS = {
     mail: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>',
@@ -9390,7 +9366,7 @@ async function fwDeleteTemplate(id) {
     if (d.ok) loadFwTemplates();
 }
 
-// ── VM/CT Firewall-Liste und Status ─────────────────
+// ── VM/CT Firewall list and status ─────────────────
 async function loadFwVmList() {
     const el = document.getElementById('fwVmList');
     if (!el) return;
@@ -9450,7 +9426,7 @@ async function fwToggleVm(vmid, type, enable) {
     loadFwVmList();
 }
 
-// ── VM/CT Regel-Viewer und Bearbeitung ──────────────
+// ── VM/CT Rule viewer and editor ──────────────
 let _fwVmRulesCtx = {};
 async function fwViewVmRules(vmid, type, name) {
     _fwVmRulesCtx = { vmid, type };

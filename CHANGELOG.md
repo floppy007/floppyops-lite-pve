@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.2.1 (2026-04-06)
+
+### Added
+- **Login Brute-Force Protection**: 2s delay on failed attempts, auth logging, Fail2ban jail (5 attempts = 15min ban)
+- **Update Script** (`update.sh`): One-command update with post-update tasks (auth log, Fail2ban, permissions)
+- **In-App Update improved**: Now syncs all files (JS, views, CSS, fonts, scripts), not just index.php
+
+### Improved
+- App update function downloads full release archive instead of single files
+- Post-update tasks run automatically (creates auth log + Fail2ban jail if missing)
+- Setup script v1.2 with Fail2ban panel jail
+- README updated with login screenshot, auth documentation and update instructions
+
+---
+
 ## v1.2.0 (2026-04-06)
 
 ### Added

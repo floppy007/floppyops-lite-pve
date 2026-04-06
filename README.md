@@ -4,7 +4,7 @@
 
 A lightweight, modern web panel installed directly on a PVE host. Built for rented dedicated servers (Hetzner, OVH, Netcup, etc.) running Proxmox VE — no cluster, no multi-server, just manage your single server.
 
-![Version](https://img.shields.io/badge/version-1.2.0-green) ![License](https://img.shields.io/badge/license-MIT-blue) ![PHP](https://img.shields.io/badge/PHP-8.x-purple) ![PVE](https://img.shields.io/badge/Proxmox_VE-8%2B-orange)
+![Version](https://img.shields.io/badge/version-1.2.1-green) ![License](https://img.shields.io/badge/license-MIT-blue) ![PHP](https://img.shields.io/badge/PHP-8.x-purple) ![PVE](https://img.shields.io/badge/Proxmox_VE-8%2B-orange)
 
 <a id="english"></a>
 
@@ -126,16 +126,14 @@ FloppyOps Lite gives you all of this in a beautiful web interface — directly o
 - **Auto-Update** — system + app auto-update with configurable schedule
 
 ### Authentication
-- **Realm Selection** — Dropdown: Proxmox VE (PVE) or Linux (PAM)
-- **PVE Auth** — Login with Proxmox VE users (root@pam, etc.)
-- **PAM Auth** — Linux system users
+![Login](screenshots/login.png)
+- **No separate accounts needed** — uses your existing Proxmox VE or Linux credentials
+- **Realm Selection** — Dropdown on the login page, just like Proxmox itself: Proxmox VE (PVE) or Linux (PAM)
+- **Brute-force protection** — 2s delay on failed attempts, all logins logged, Fail2ban jail (5 attempts = 15min ban)
+- **Nginx rate limiting** — 10 req/s general, 30 req/s API
 - CSRF tokens on all forms
 - Nginx IP whitelist template
-
-### PVE Dashboard Integration
-- **Toolbar Button** — FloppyOps button in PVE's top toolbar
-- **SSL Access** — Port 8443 with PVE certificate, auto HTTP→HTTPS redirect
-- **apt Hook** — auto-restores integration after PVE updates
+- Language toggle (EN/DE) on the login page
 
 ### More
 - Deutsch / English — language toggle in topbar
@@ -146,16 +144,26 @@ FloppyOps Lite gives you all of this in a beautiful web interface — directly o
 ## Installation
 
 ```bash
-git clone https://github.com/floppy007/floppyops-lite.git
-cd floppyops-lite
+git clone https://github.com/floppy007/floppyops-lite.git /var/www/server-admin
+cd /var/www/server-admin
 bash setup.sh --domain admin.example.com
 ```
+
+The setup script copies all files, configures Nginx, PHP-FPM, SSL, and sets up selected modules (Fail2ban, Nginx Proxy, ZFS, WireGuard).
+
+## Update
+
+```bash
+cd /var/www/server-admin
+bash update.sh
+```
+
+The update script pulls the latest code and runs post-update tasks (new config files, permissions, Fail2ban rules). Your `config.php` is never overwritten.
 
 ### Options
 
 ```
 --domain FQDN    Domain for the panel (enables SSL via Certbot)
---dir /path      Install directory (default: /var/www/server-admin)
 --no-ssl         Skip SSL certificate
 ```
 
@@ -187,7 +195,6 @@ js/chart.min.js        → Chart.js (bundled locally)
 public/style.css       → Dark theme CSS
 public/fonts/          → Outfit + JetBrains Mono (bundled locally)
 views/                 → PHP view templates (dashboard, modals, tabs)
-pve-integration/       → PVE toolbar button + install script
 ```
 
 Single-file PHP app — no framework, no database, no external dependencies. All assets bundled locally.
@@ -229,15 +236,14 @@ FloppyOps Lite gibt dir all das in einer schönen Web-Oberfläche — direkt auf
 | **WireGuard** | Status, Live Traffic Graph, Config, Tunnel-Wizard, Firewall-Wizard |
 | **Security** | Port-Scanner, PVE Firewall, Regeln verwalten, One-Click Block, Standard-Regeln |
 | **Updates** | System-Updates, Repository-Verwaltung, App Self-Update, Auto-Update |
-| **Auth** | PVE/PAM Realm-Auswahl, CSRF, IP-Whitelist |
-| **PVE Integration** | Toolbar-Button, SSL Port 8443, apt-Hook |
+| **Auth** | PVE/PAM Realm-Auswahl, Brute-Force Schutz (Fail2ban), Rate Limiting, CSRF, IP-Whitelist |
 | **i18n** | Deutsch + Englisch |
 
 ### Installation
 
 ```bash
-git clone https://github.com/floppy007/floppyops-lite.git
-cd floppyops-lite
+git clone https://github.com/floppy007/floppyops-lite.git /var/www/server-admin
+cd /var/www/server-admin
 bash setup.sh --domain admin.example.com
 ```
 
