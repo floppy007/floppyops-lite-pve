@@ -1,5 +1,5 @@
 /**
- * FloppyOps Lite — Ui
+ * FloppyOps Lite PVE — Ui
  * UI Helpers — confirm dialog, prompt dialog, modal open/close
  *
  * @requires app.js (api, toast, fmtBytes, pct)
@@ -57,4 +57,3 @@ function openModal(id) { document.getElementById(id).classList.add('active'); }
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
 document.querySelectorAll('.modal-overlay').forEach(m => {
-

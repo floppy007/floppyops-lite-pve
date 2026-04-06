@@ -1,6 +1,6 @@
 <?php
 /**
- * FloppyOps Lite — Dashboard View
+ * FloppyOps Lite PVE — Dashboard View
  * Dashboard tab — server stats (hostname, uptime, CPU, RAM, disk, fail2ban, nginx, ZFS)
  * 
  * Included by index.php — do not call directly.
@@ -66,4 +66,3 @@
                 </table>
             </div>
         </div>
-

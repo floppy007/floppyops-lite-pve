@@ -1,6 +1,6 @@
 <?php
 /**
- * FloppyOps Lite — Fail2ban View
+ * FloppyOps Lite PVE — Fail2ban View
  * Fail2ban tab — jail overview, unban, config editor, log viewer
  * 
  * Included by index.php — do not call directly.
@@ -31,5 +31,4 @@
                 <div class="log-viewer" id="f2bLog">Laden...</div>
             </div>
         </div>
-
 

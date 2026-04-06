@@ -1,5 +1,5 @@
 /**
- * FloppyOps Lite — Zfs
+ * FloppyOps Lite PVE — Zfs
  * ZFS — pools, datasets, snapshots (create/delete/rollback/clone), auto-snapshot config
  *
  * @requires app.js (api, toast, fmtBytes, pct)
@@ -111,7 +111,7 @@ async function loadZfs() {
         });
 
         zfsRenderSnaps();
-    } catch (e) { console.error('ZFS error', e); }
+    } catch (e) { /* load error */ }
 }
 
 function zfsRenderSnaps() {
@@ -206,7 +206,7 @@ function zfsRenderSnaps() {
 }
 
 async function zfsInstallAuto() {
-    toast('Installiere zfs-auto-snapshot...');
+    toast(T.zfs_installing);
     try {
         const res = await api('zfs-install-auto', 'POST', {});
         if (res.ok) { toast('zfs-auto-snapshot installiert'); loadZfs(); }
@@ -224,7 +224,7 @@ async function zfsToggleAuto(dataset, enabled) {
 
 async function zfsSetRetention(label, value) {
     const keep = parseInt(value);
-    if (!keep || keep < 1 || keep > 999) { toast('Wert muss zwischen 1-999 liegen', 'error'); return; }
+    if (!keep || keep < 1 || keep > 999) { toast(T.retention_range_error, 'error'); return; }
     try {
         const res = await api('zfs-set-retention', 'POST', { label, keep });
         if (res.ok) toast('Retention ' + label + ' → ' + keep + ' Snapshots');
@@ -233,7 +233,7 @@ async function zfsSetRetention(label, value) {
 }
 
 function zfsCreateSnapModal() {
-    if (!_zfsData || !_zfsData.datasets.length) { toast('Keine Datasets', 'error'); return; }
+    if (!_zfsData || !_zfsData.datasets.length) { toast(T.no_datasets, 'error'); return; }
     const ds = _zfsData.datasets;
     const defaultName = 'manual-' + new Date().toISOString().slice(0,19).replace(/[T:]/g, '-');
     let body = '<div class="form-group"><label class="form-label">Dataset</label>' +
@@ -258,7 +258,7 @@ function zfsCreateSnapModal() {
 async function zfsDoSnap() {
     const dataset = document.getElementById('zfsSnapDs')?.value;
     const name = document.getElementById('zfsSnapName')?.value?.trim();
-    if (!dataset || !name) { toast('Dataset und Name erforderlich', 'error'); return; }
+    if (!dataset || !name) { toast(T.dataset_name_required, 'error'); return; }
     closeModal('zfsSnapModal');
     try {
         const res = await api('zfs-snapshot', 'POST', { dataset, name });
@@ -426,7 +426,7 @@ async function zfsSnapCloneVm(snap) {
     }
 
     const btn = document.getElementById('zfsSnapCloneBtn');
-    btn.disabled = false; btn.textContent = 'Clone starten';
+    btn.disabled = false; btn.textContent = T.clone_start;
     openModal('zfsSnapCloneModal');
 }
 
@@ -439,7 +439,7 @@ async function zfsSnapCloneSubmit() {
     const autoStart = document.getElementById('zscStart').checked ? '1' : '0';
     const netMode = document.querySelector('input[name="zscNetMode"]:checked')?.value || 'keep';
 
-    if (!newVmid || !name) { toast('VMID und Name erforderlich', 'error'); return; }
+    if (!newVmid || !name) { toast(T.vmid_name_required, 'error'); return; }
 
     const data = {
         snapshot: snap, new_vmid: newVmid, new_name: name,
@@ -465,12 +465,12 @@ async function zfsSnapCloneSubmit() {
             closeModal('zfsSnapCloneModal');
             loadPveVms && loadPveVms();
         } else {
-            toast(res.error || 'Fehler', 'error');
-            btn.disabled = false; btn.textContent = 'Clone starten';
+            toast(res.error || T.error, 'error');
+            btn.disabled = false; btn.textContent = T.clone_start;
         }
     } catch (e) {
-        toast('Fehler: ' + e.message, 'error');
-        btn.disabled = false; btn.textContent = 'Clone starten';
+        toast(T.error + ': ' + e.message, 'error');
+        btn.disabled = false; btn.textContent = T.clone_start;
     }
 }
 
@@ -493,4 +493,3 @@ let wgChart = null;
 let wgLastBytes = null;
 let wgGraphTimer = null;
 let wgPollCount = 0;
-

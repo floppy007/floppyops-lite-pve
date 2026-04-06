@@ -1,6 +1,6 @@
 <?php
 /**
- * FloppyOps Lite — Modals View
+ * FloppyOps Lite PVE — Modals View
  * Shared modals — clone VM, fail2ban config, wireguard config/wizard, nginx add/edit site
  * 
  * Included by index.php — do not call directly.
@@ -150,4 +150,3 @@
 
 <!-- ─ Toast Container ─────────────────────────────────── -->
 <div class="toast-container" id="toasts"></div>
-

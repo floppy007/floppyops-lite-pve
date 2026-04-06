@@ -1,6 +1,6 @@
 <?php
 /**
- * FloppyOps Lite — Zfs View
+ * FloppyOps Lite PVE — Zfs View
  * ZFS tab — pools, datasets, snapshots (rollback/clone), auto-snapshots with retention
  * 
  * Included by index.php — do not call directly.
@@ -95,5 +95,4 @@
                 <div id="zfsAutoBody"></div>
             </div>
         </div>
-
 

@@ -1,6 +1,6 @@
 <?php
 /**
- * FloppyOps Lite — Updates View
+ * FloppyOps Lite PVE — Updates View
  * Updates tab — system packages (apt), app self-update, repo check, auto-update settings
  * 
  * Included by index.php — do not call directly.
@@ -105,4 +105,3 @@
                         <span style="font-size:.78rem;font-weight:600">Auto-Update</span>
                         <span id="autoUpdateStatus" style="font-size:.58rem;color:var(--text3);margin-left:auto"></span>
                     </div>
-

@@ -1,5 +1,5 @@
 /**
- * FloppyOps Lite — Nginx
+ * FloppyOps Lite PVE — Nginx
  * Nginx Proxy — setup checks, site CRUD, SSL renewal, config editor
  *
  * @requires app.js (api, toast, fmtBytes, pct)
@@ -29,11 +29,11 @@ async function loadNginxChecks() {
                 fixBtn +
             '</div>';
         }).join('');
-    } catch (e) { console.error('Nginx checks error', e); }
+    } catch (e) { /* checks error */ }
 }
 
 async function nginxApplyFix(fixId, extra) {
-    toast('Wende Fix an...');
+    toast(T.applying_fix);
     try {
         const data = { fix_id: fixId };
         if (extra) Object.assign(data, extra);
@@ -102,7 +102,7 @@ async function loadNginx() {
                     </div>
                 </div>`;
         });
-    } catch (e) { console.error('Nginx error', e); }
+    } catch (e) { /* load error */ }
 }
 
 function showAddSite() {
@@ -117,7 +117,7 @@ async function addSite() {
     const target = document.getElementById('newTarget').value.trim();
     const ssl = document.getElementById('newSsl').checked ? '1' : '0';
 
-    if (!domain || !target) { toast('Domain und Ziel erforderlich', 'error'); return; }
+    if (!domain || !target) { toast(T.domain_ip_required, 'error'); return; }
 
     try {
         const res = await api('nginx-add', 'POST', { domain, target, ssl });
@@ -146,7 +146,7 @@ async function saveSite() {
     try {
         const res = await api('nginx-save', 'POST', { file, content });
         if (res.ok) {
-            toast('Konfiguration gespeichert');
+            toast(T.config_saved);
             closeModal('editSiteModal');
             loadNginx();
         } else {
@@ -160,7 +160,7 @@ async function deleteSite(file) {
     try {
         const res = await api('nginx-delete', 'POST', { file });
         if (res.ok) {
-            toast('Site gelöscht');
+            toast(T.site_deleted);
             loadNginx();
             loadStats();
         } else {
@@ -170,11 +170,11 @@ async function deleteSite(file) {
 }
 
 async function renewCert(domain) {
-    toast('SSL-Zertifikat wird erneuert...', 'success');
+    toast(T.ssl_renewing, 'success');
     try {
         const res = await api('nginx-renew', 'POST', { domain });
         if (res.ok) {
-            toast('Zertifikat für ' + domain + ' erneuert');
+            toast(T.ssl_renewed + ' ' + domain);
             loadNginx();
         } else {
             toast(res.error || res.output || 'Renew fehlgeschlagen', 'error');
@@ -188,8 +188,4 @@ async function reloadNginx() {
         toast(res.ok ? 'Nginx neu geladen' : (res.error || 'Fehler'), res.ok ? 'success' : 'error');
     } catch (e) { toast('Fehler: ' + e.message, 'error'); }
 }
-
-// ── VMs & CTs ────────────────────────────────────────
-let _pveVms = [];
-let _pveNode = '';
 

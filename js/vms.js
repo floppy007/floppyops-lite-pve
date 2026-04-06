@@ -37,12 +37,12 @@ async function loadPveVms() {
         });
         html += '</tbody></table>';
         list.innerHTML = html;
-    } catch (e) { console.error('PVE VMs error', e); }
+    } catch (e) { /* load error */ }
 }
 
 async function pveOpenClone(vmid, type, name) {
     const typeLabel = type === 'qemu' ? 'VM' : 'CT';
-    document.getElementById('pveCloneTitle').textContent = 'Clone ' + typeLabel + ' ' + vmid + ' (' + name + ')';
+    document.getElementById('pveCloneTitle').textContent = T.clone + ' ' + typeLabel + ' ' + vmid + ' (' + name + ')';
 
     document.getElementById('pveCloneBody').innerHTML = '<div style="text-align:center;padding:24px"><span class="loading-spinner" style="width:20px;height:20px;border-width:2px"></span></div>';
     openModal('pveCloneModal');
@@ -67,7 +67,8 @@ async function pveOpenClone(vmid, type, name) {
             const net = cfg['net' + i];
             const bridge = (net.match(/bridge=([^,]+)/) || [])[1] || '?';
             const ip = (net.match(/ip=([^,]+)/) || [])[1] || 'DHCP';
-            netInfo += '<div style="font-size:.62rem;color:var(--text3);font-family:var(--mono)">net' + i + ': ' + bridge + ' &middot; ' + ip + '</div>';
+            const ip6 = (net.match(/ip6=([^,]+)/) || [])[1] || '';
+            netInfo += '<div style="font-size:.62rem;color:var(--text3);font-family:var(--mono)">net' + i + ': ' + bridge + ' &middot; ' + ip + (ip6 ? ' &middot; <span style="color:var(--blue)">' + ip6 + '</span>' : '') + '</div>';
         }
     }
 
@@ -181,7 +182,7 @@ async function pveDoClone() {
     const autoStart = document.getElementById('pveCloneAutoStart')?.checked;
     const onboot = document.getElementById('pveCloneOnboot')?.checked ? '1' : '0';
 
-    if (!newid || !name) { toast('VMID und Name erforderlich', 'error'); return; }
+    if (!newid || !name) { toast(T.vmid_name_required, 'error'); return; }
 
     const btn = document.getElementById('pveCloneBtn');
     btn.disabled = true;
@@ -195,7 +196,7 @@ async function pveDoClone() {
             btn.disabled = false; btn.innerHTML = 'Clone starten';
             return;
         }
-        toast('Clone gestartet — warte auf Abschluss...');
+        toast(T.clone_started);
 
         // Step 2: Wait for clone to finish (poll every 3s, max 120s)
         btn.innerHTML = '<span class="loading-spinner" style="width:12px;height:12px;border-width:1.5px;margin-right:4px"></span>2/3 Warte...';
@@ -207,7 +208,7 @@ async function pveDoClone() {
         }
 
         if (!ready) {
-            toast('Clone laeuft noch im Hintergrund', 'success');
+            toast(T.clone_background, 'success');
             closeModal('pveCloneModal');
             setTimeout(loadPveVms, 5000);
             return;
@@ -220,7 +221,7 @@ async function pveDoClone() {
             net_disconnect: netDisconnect
         });
         if (cfgRes.ok) {
-            toast('Hardware-Config angepasst');
+            toast(T.hw_config_saved);
         }
 
         // Optional: Start
@@ -241,6 +242,4 @@ async function pveDoClone() {
     }
 }
 
-// ── ZFS ──────────────────────────────────────────────
-let _zfsData = null;
 

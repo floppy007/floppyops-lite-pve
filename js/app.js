@@ -1,16 +1,12 @@
 /**
- * FloppyOps Lite — App
+ * FloppyOps Lite PVE — App
  * Core — tab switching, toast notifications, API fetch helper, byte/percent formatters
- *
- * @requires app.js (api, toast, fmtBytes, pct)
  */
 
 <script>
 const CSRF = '<?= $csrf ?>';
 const LANG = '<?= $lang ?>';
 const T = <?= json_encode($t, JSON_UNESCAPED_UNICODE) ?>;
-function t(k) { return T[k] || k; }
-
 // ── Tabs ─────────────────────────────────────────────
 function switchTab(tabName) {
     document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
@@ -67,4 +63,3 @@ function pct(used, total) {
 }
 
 // ── Dashboard ────────────────────────────────────────
-

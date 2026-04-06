@@ -1,5 +1,5 @@
 /**
- * FloppyOps Lite — Fail2ban
+ * FloppyOps Lite PVE — Fail2ban
  * Fail2ban — load jails, unban IPs, config editor, log viewer
  *
  * @requires app.js (api, toast, fmtBytes, pct)
@@ -41,7 +41,6 @@ async function loadF2b() {
         const logEl = document.getElementById('f2bLog');
         logEl.innerHTML = '';
         log.forEach(line => {
-            let cls = '';
             let hl = line.replace(/&/g, '&amp;').replace(/</g, '&lt;');
             if (hl.includes(' Ban ')) { hl = hl.replace(/( Ban )/, '<span class="log-ban">$1</span>'); }
             else if (hl.includes(' Unban ')) { hl = hl.replace(/( Unban )/, '<span class="log-unban">$1</span>'); }
@@ -50,7 +49,7 @@ async function loadF2b() {
             hl = hl.replace(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/, '<span class="log-ts">$1</span>');
             logEl.innerHTML += `<div class="log-line">${hl}</div>`;
         });
-    } catch (e) { console.error('F2B error', e); }
+    } catch (e) { /* load error */ }
 }
 
 async function unban(jail, ip) {
@@ -96,4 +95,3 @@ async function saveF2bConfig() {
 }
 
 // ── Nginx Checks ─────────────────────────────────────
-

@@ -11,7 +11,7 @@
 // ║    5. JavaScript (Dashboard, VMs, Security, etc.)              ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
-define('APP_VERSION', '1.1.1');
+define('APP_VERSION', '1.2.0');
 require_once __DIR__ . '/config.php';
 session_start();
 require_once __DIR__ . '/lang.php';
@@ -80,6 +80,7 @@ if (!isset($_SESSION['authed'])) {
 }
 
 function showLoginPage(string $error = ''): void {
+    global $lang;
     $appName = APP_NAME;
     $errHtml = $error ? '<div class="login-error">' . htmlspecialchars($error) . '</div>' : '';
     $lblUser = __('login_user');
@@ -87,19 +88,21 @@ function showLoginPage(string $error = ''): void {
     $lblBtn = __('login_btn');
     $lblHint = __('login_hint');
     $appVersion = APP_VERSION;
-    $year = date('Y');
+    $langDe = $lang === 'de' ? 'background:var(--accent);color:#fff' : 'color:var(--text3)';
+    $langEn = $lang === 'en' ? 'background:var(--accent);color:#fff' : 'color:var(--text3)';
     echo <<<HTML
 <!-- ╔══════════════════════════════════════════════════════════════╗ -->
 <!-- ║                    HTML + CSS + LAYOUT                        ║ -->
 <!-- ╚══════════════════════════════════════════════════════════════╝ -->
 <!DOCTYPE html>
-<html lang="de">
+<html lang="{$lang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{$appName} — Login</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@400;600;700;800;900&display=swap');
+@font-face{font-family:'Outfit';src:url('public/fonts/outfit-latin.woff2') format('woff2');font-weight:300 900;font-display:swap}
+@font-face{font-family:'JetBrains Mono';src:url('public/fonts/jetbrains-mono-latin.woff2') format('woff2');font-weight:300 700;font-display:swap}
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--bg:#050810;--accent:#ff5900;--surface:rgba(17,24,39,.55);--border:rgba(255,255,255,.05);--text:#e8eaed;--text2:#9aa0a6;--text3:#5f6368}
 html,body{height:100%}
@@ -259,6 +262,10 @@ select.login-input option{background:#0c0f15;color:var(--text);padding:8px}
 <body>
 <div class="login-wrap">
     <div class="login-card">
+        <div style="position:absolute;top:14px;right:16px;display:flex;gap:1px;background:rgba(255,255,255,.04);border-radius:5px;padding:2px;z-index:2">
+            <a href="?lang=en" style="padding:3px 8px;border-radius:3px;font-size:.55rem;font-weight:600;text-decoration:none;letter-spacing:.03em;transition:all .2s;{$langEn}">EN</a>
+            <a href="?lang=de" style="padding:3px 8px;border-radius:3px;font-size:.55rem;font-weight:600;text-decoration:none;letter-spacing:.03em;transition:all .2s;{$langDe}">DE</a>
+        </div>
         <div class="login-brand">
             <div class="login-dot">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
@@ -365,25 +372,6 @@ function handleDashboardAPI(string $action): bool {
         // PVE Firewall
         $fwRules = trim(shell_exec('grep -c "^IN " /etc/pve/firewall/cluster.fw 2>/dev/null') ?? '0');
 
-        // ZFS datasets
-        $zfsRaw = shell_exec('sudo /usr/sbin/zfs list -Hp -o name,used,avail,refer,mountpoint 2>/dev/null') ?? '';
-        $zfsDatasets = [];
-        foreach (array_filter(explode("\n", trim($zfsRaw))) as $line) {
-            $cols = preg_split('/\t/', $line);
-            if (count($cols) >= 4) {
-                $used = (int)$cols[1];
-                $avail = (int)$cols[2];
-                $zfsDatasets[] = [
-                    'name' => $cols[0],
-                    'used' => $used,
-                    'avail' => $avail,
-                    'total' => $used + $avail,
-                    'refer' => (int)$cols[3],
-                    'mount' => $cols[4] ?? '-',
-                ];
-            }
-        }
-
         // CPU usage % — from /proc/stat (cumulative values, delta calculated client-side)
         $cpuStat = trim(shell_exec("head -1 /proc/stat") ?? '');
         $cpuIdle = 0; $cpuTotal = 0;
@@ -394,6 +382,12 @@ function handleDashboardAPI(string $action): bool {
         }
         // Fallback: load-based estimate
         $cpuPct = $cpuCores > 0 ? min(100, round($load[0] / $cpuCores * 100, 1)) : 0;
+
+        // PVE Subscription
+        $subRaw = trim(shell_exec('pvesubscription get 2>/dev/null') ?? '');
+        $subActive = (bool)preg_match('/status:\s*active/i', $subRaw);
+        $subLevel = '';
+        if (preg_match('/level:\s*(\S+)/i', $subRaw, $sm)) $subLevel = $sm[1];
 
         // Network I/O (bytes from /proc/net/dev, first non-lo interface)
         $netRx = 0; $netTx = 0;
@@ -435,6 +429,8 @@ function handleDashboardAPI(string $action): bool {
             'f2b_banned' => $totalBanned,
             'nginx_sites' => $sites,
             'fw_rules' => (int)$fwRules,
+            'sub_active' => $subActive,
+            'sub_level' => $subLevel,
             'updates' => (function() {
                 // Cache apt count for 5 min to avoid slow apt call every 4s
                 $cache = '/tmp/floppyops-lite-apt-count';
@@ -581,6 +577,39 @@ function handleFail2banAPI(string $action): bool {
  * @param string $action Der API-Action-Name
  * @return bool true wenn behandelt
  */
+function buildNginxProxyConfig(string $serverNames, string $target, bool $forceSsl, $maxUpload, bool $withWs, $timeout): string {
+    $conf = "server {\n    listen 80;\n    listen [::]:80;\n    server_name $serverNames;\n\n";
+    if ($forceSsl) {
+        $conf .= "    return 301 https://\$host\$request_uri;\n}\n\n";
+        $conf .= "server {\n    listen 443 ssl;\n    listen [::]:443 ssl;\n    server_name $serverNames;\n\n";
+    }
+    $mu = is_numeric($maxUpload) ? (int)$maxUpload : -1;
+    if ($mu > 0) {
+        $conf .= "    client_max_body_size {$mu}m;\n";
+    } elseif ($maxUpload === '0' || $mu === 0) {
+        $conf .= "    client_max_body_size 0;\n";
+    }
+    $conf .= "\n    location / {\n";
+    $conf .= "        proxy_pass $target;\n";
+    $conf .= "        proxy_set_header Host \$host;\n";
+    $conf .= "        proxy_set_header X-Real-IP \$remote_addr;\n";
+    $conf .= "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;\n";
+    $conf .= "        proxy_set_header X-Forwarded-Proto \$scheme;\n";
+    if ($withWs) {
+        $conf .= "        proxy_http_version 1.1;\n";
+        $conf .= "        proxy_set_header Upgrade \$http_upgrade;\n";
+        $conf .= "        proxy_set_header Connection \"upgrade\";\n";
+    }
+    $to = is_numeric($timeout) ? (int)$timeout : 0;
+    if ($to > 0) {
+        $conf .= "        proxy_connect_timeout {$to}s;\n";
+        $conf .= "        proxy_send_timeout {$to}s;\n";
+        $conf .= "        proxy_read_timeout {$to}s;\n";
+    }
+    $conf .= "    }\n}\n";
+    return $conf;
+}
+
 function handleNginxAPI(string $action): bool {
     // GET: System-Checks (IP-Forwarding, NAT, Bridges, Nginx, Certbot)
     if ($action === 'nginx-checks') {
@@ -591,6 +620,14 @@ function handleNginxAPI(string $action): bool {
         $ipv6Fwd = trim(@file_get_contents('/proc/sys/net/ipv6/conf/all/forwarding') ?? '0');
         $checks[] = ['id' => 'ipv4_fwd', 'label' => 'IPv4 Forwarding', 'ok' => $ipv4Fwd === '1', 'value' => $ipv4Fwd === '1' ? 'Aktiv' : 'Inaktiv', 'fix' => 'echo 1 > /proc/sys/net/ipv4/ip_forward'];
         $checks[] = ['id' => 'ipv6_fwd', 'label' => 'IPv6 Forwarding', 'ok' => $ipv6Fwd === '1', 'value' => $ipv6Fwd === '1' ? 'Aktiv' : 'Inaktiv', 'fix' => 'echo 1 > /proc/sys/net/ipv6/conf/all/forwarding'];
+
+        // NDP Proxy (needed for IPv6 between bridges, e.g. vmbr1 CTs reaching vmbr0 CTs)
+        $ndpProxy = trim(@file_get_contents('/proc/sys/net/ipv6/conf/all/proxy_ndp') ?? '0');
+        $hasNdpEntries = !empty(trim(shell_exec('ip -6 neigh show proxy 2>/dev/null') ?? ''));
+        // Only flag as problem if IPv6 forwarding is on AND NDP proxy entries exist but proxy_ndp is off
+        $ndpRelevant = $ipv6Fwd === '1' && $hasNdpEntries;
+        $ndpOk = !$ndpRelevant || $ndpProxy === '1';
+        $checks[] = ['id' => 'ndp_proxy', 'label' => 'IPv6 NDP Proxy', 'ok' => $ndpOk, 'value' => $ndpProxy === '1' ? 'Aktiv' : ($ndpRelevant ? 'Inaktiv (NDP Einträge vorhanden!)' : 'Inaktiv'), 'fix' => $ndpOk ? '' : 'ndp_proxy'];
 
         // Bridges (needed for NAT check below)
         $bridges = [];
@@ -623,7 +660,7 @@ function handleNginxAPI(string $action): bool {
 
         // Certbot
         $certbotOk = file_exists('/usr/bin/certbot');
-        $checks[] = ['id' => 'certbot', 'label' => 'Certbot (SSL)', 'ok' => $certbotOk, 'value' => $certbotOk ? 'Installiert' : 'Fehlt', 'fix' => 'apt install -y certbot python3-certbot-nginx'];
+        $checks[] = ['id' => 'certbot', 'label' => 'Certbot (SSL)', 'ok' => $certbotOk, 'value' => $certbotOk ? __('installed') : __('missing'), 'fix' => 'apt install -y certbot python3-certbot-nginx'];
 
         echo json_encode(['ok' => true, 'checks' => $checks]);
         return true;
@@ -646,6 +683,11 @@ function handleNginxAPI(string $action): bool {
                 shell_exec('echo 1 > /proc/sys/net/ipv6/conf/all/forwarding');
                 shell_exec("grep -q 'net.ipv6.conf.all.forwarding' /etc/sysctl.conf || echo 'net.ipv6.conf.all.forwarding=1' | sudo tee -a /etc/sysctl.conf > /dev/null");
                 $out = 'IPv6 Forwarding aktiviert (permanent)';
+                break;
+            case 'ndp_proxy':
+                shell_exec('sysctl -w net.ipv6.conf.all.proxy_ndp=1 > /dev/null 2>&1');
+                shell_exec("grep -q 'net.ipv6.conf.all.proxy_ndp' /etc/sysctl.conf || echo 'net.ipv6.conf.all.proxy_ndp=1' | sudo tee -a /etc/sysctl.conf > /dev/null");
+                $out = 'IPv6 NDP Proxy aktiviert (permanent)';
                 break;
             case 'nginx':
                 $out = shell_exec('sudo systemctl start nginx 2>&1') ?? '';
@@ -757,26 +799,33 @@ function handleNginxAPI(string $action): bool {
             return true;
         }
 
+        $withWs = ($_POST['ws'] ?? '') === '1';
+        $forceSsl = ($_POST['force_ssl'] ?? '') === '1';
+        $maxUpload = $_POST['max_upload'] ?? '';
+        $timeout = $_POST['timeout'] ?? '';
+
         $serverNames = implode(' ', $domains);
         $safeFile = preg_replace('/[^a-zA-Z0-9.-]/', '_', $domains[0]);
-        $conf = "server {\n    listen 80;\n    listen [::]:80;\n    server_name $serverNames;\n\n";
-        $conf .= "    location / {\n";
-        $conf .= "        proxy_pass $target;\n";
-        $conf .= "        proxy_set_header Host \$host;\n";
-        $conf .= "        proxy_set_header X-Real-IP \$remote_addr;\n";
-        $conf .= "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;\n";
-        $conf .= "        proxy_set_header X-Forwarded-Proto \$scheme;\n";
-        $conf .= "        proxy_http_version 1.1;\n";
-        $conf .= "        proxy_set_header Upgrade \$http_upgrade;\n";
-        $conf .= "        proxy_set_header Connection \"upgrade\";\n";
-        $conf .= "    }\n}\n";
+        $conf = buildNginxProxyConfig($serverNames, $target, $forceSsl, $maxUpload, $withWs, $timeout);
 
         $availPath = NGINX_SITES_AVAILABLE . "/$safeFile";
         $enablePath = NGINX_SITES_DIR . "/$safeFile";
 
-        file_put_contents($availPath, $conf);
+        if (!@file_put_contents($availPath, $conf)) {
+            // Fallback: write via sudo
+            $tmpFile = tempnam('/tmp', 'nginx_');
+            file_put_contents($tmpFile, $conf);
+            shell_exec('sudo cp ' . escapeshellarg($tmpFile) . ' ' . escapeshellarg($availPath) . ' && sudo chmod 644 ' . escapeshellarg($availPath) . ' 2>&1');
+            @unlink($tmpFile);
+            if (!file_exists($availPath)) {
+                echo json_encode(['ok' => false, 'error' => 'Konnte Config nicht schreiben (Berechtigungen)']);
+                return true;
+            }
+        }
         if (!file_exists($enablePath)) {
-            symlink($availPath, $enablePath);
+            if (!@symlink($availPath, $enablePath)) {
+                shell_exec('sudo ln -sf ' . escapeshellarg($availPath) . ' ' . escapeshellarg($enablePath) . ' 2>&1');
+            }
         }
 
         // Test config
@@ -802,6 +851,109 @@ function handleNginxAPI(string $action): bool {
         return true;
     }
 
+    // POST: Nginx Site compact update (domains, ip, port, ws)
+    if ($action === 'nginx-update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        csrf_check();
+        $file = basename($_POST['file'] ?? '');
+        $domainsRaw = trim($_POST['domains'] ?? '');
+        $ip = trim($_POST['ip'] ?? '');
+        $port = trim($_POST['port'] ?? '80');
+        $withWs = ($_POST['ws'] ?? '') === '1';
+        $forceSsl = ($_POST['force_ssl'] ?? '') === '1';
+        $maxUpload = $_POST['max_upload'] ?? '';
+        $timeout = $_POST['timeout'] ?? '';
+
+        if (!$file || !$domainsRaw || !$ip) {
+            echo json_encode(['ok' => false, 'error' => 'Fehlende Felder']);
+            return true;
+        }
+
+        $domains = array_filter(array_map('trim', preg_split('/[\s,]+/', $domainsRaw)));
+        $availPath = NGINX_SITES_AVAILABLE . "/$file";
+        $enablePath = NGINX_SITES_DIR . "/$file";
+        $targetPath = file_exists($availPath) ? $availPath : $enablePath;
+        $content = @file_get_contents($targetPath) ?: '';
+        if (!$content) {
+            $content = @shell_exec('sudo cat ' . escapeshellarg($targetPath) . ' 2>/dev/null') ?: '';
+        }
+
+        if ($content) {
+            // Update server_name (all occurrences)
+            $serverNames = implode(' ', $domains);
+            $content = preg_replace('/server_name\s+[^;]+;/', "server_name $serverNames;", $content);
+            // Update proxy_pass
+            $newTarget = "http://$ip:$port";
+            $content = preg_replace('/proxy_pass\s+https?:\/\/[^;]+;/', "proxy_pass $newTarget;", $content);
+
+            // Toggle WebSocket
+            $hasWs = (bool)preg_match('/proxy_set_header Upgrade/', $content);
+            if ($withWs && !$hasWs) {
+                $content = preg_replace('/(proxy_set_header X-Forwarded-Proto[^;]*;)/', "$1\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade \$http_upgrade;\n        proxy_set_header Connection \"upgrade\";", $content);
+            } elseif (!$withWs && $hasWs) {
+                $content = preg_replace('/\s*proxy_http_version 1\.1;\s*\n/', "\n", $content);
+                $content = preg_replace('/\s*proxy_set_header Upgrade[^;]*;\s*\n/', "\n", $content);
+                $content = preg_replace('/\s*proxy_set_header Connection "upgrade";\s*\n/', "\n", $content);
+            }
+
+            // Toggle Force SSL
+            $hasForceSsl = (bool)preg_match('/return 301 https/', $content);
+            if ($forceSsl && !$hasForceSsl) {
+                // Add redirect to first server block (port 80)
+                $content = preg_replace('/(listen \[::\]:80;[^\n]*\n\s*server_name [^;]+;\s*\n)/', "$1\n    return 301 https://\$host\$request_uri;\n", $content, 1);
+            } elseif (!$forceSsl && $hasForceSsl) {
+                $content = preg_replace('/\s*return 301 https:\/\/\$host\$request_uri;\s*\n/', "\n", $content);
+            }
+
+            // Update client_max_body_size
+            $hasUpload = (bool)preg_match('/client_max_body_size/', $content);
+            if ($maxUpload !== '') {
+                $val = $maxUpload === '0' ? '0' : "{$maxUpload}m";
+                if ($hasUpload) {
+                    $content = preg_replace('/client_max_body_size\s+[^;]+;/', "client_max_body_size $val;", $content);
+                } else {
+                    $content = preg_replace('/(server_name [^;]+;\s*\n)/', "$1    client_max_body_size $val;\n", $content);
+                }
+            } elseif ($hasUpload) {
+                $content = preg_replace('/\s*client_max_body_size[^;]*;\s*\n/', "\n", $content);
+            }
+
+            // Update proxy timeouts
+            $hasTimeout = (bool)preg_match('/proxy_read_timeout/', $content);
+            if ($timeout !== '') {
+                $tv = "{$timeout}s";
+                if ($hasTimeout) {
+                    $content = preg_replace('/proxy_connect_timeout\s+[^;]+;/', "proxy_connect_timeout $tv;", $content);
+                    $content = preg_replace('/proxy_send_timeout\s+[^;]+;/', "proxy_send_timeout $tv;", $content);
+                    $content = preg_replace('/proxy_read_timeout\s+[^;]+;/', "proxy_read_timeout $tv;", $content);
+                } else {
+                    $content = preg_replace('/(proxy_pass [^;]+;\s*\n)/', "$1        proxy_connect_timeout $tv;\n        proxy_send_timeout $tv;\n        proxy_read_timeout $tv;\n", $content, 1);
+                }
+            } elseif ($hasTimeout) {
+                $content = preg_replace('/\s*proxy_connect_timeout[^;]*;\s*\n/', "\n", $content);
+                $content = preg_replace('/\s*proxy_send_timeout[^;]*;\s*\n/', "\n", $content);
+                $content = preg_replace('/\s*proxy_read_timeout[^;]*;\s*\n/', "\n", $content);
+            }
+        } else {
+            $serverNames = implode(' ', $domains);
+            $content = buildNginxProxyConfig($serverNames, "http://$ip:$port", $forceSsl, $maxUpload, $withWs, $timeout);
+        }
+
+        if (!@file_put_contents($targetPath, $content)) {
+            $tmpFile = tempnam('/tmp', 'nginx_');
+            file_put_contents($tmpFile, $content);
+            shell_exec('sudo cp ' . escapeshellarg($tmpFile) . ' ' . escapeshellarg($targetPath) . ' && sudo chmod 644 ' . escapeshellarg($targetPath) . ' 2>&1');
+            @unlink($tmpFile);
+        }
+        $test = shell_exec('sudo nginx -t 2>&1');
+        if (strpos($test, 'successful') === false) {
+            echo json_encode(['ok' => false, 'error' => 'Nginx-Config ungueltig: ' . $test]);
+            return true;
+        }
+        shell_exec('sudo systemctl reload nginx 2>&1');
+        echo json_encode(['ok' => true]);
+        return true;
+    }
+
     // POST: Nginx Site-Config bearbeiten und Syntax pruefen
     if ($action === 'nginx-save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
@@ -815,7 +967,12 @@ function handleNginxAPI(string $action): bool {
         $enablePath = NGINX_SITES_DIR . "/$file";
         $targetPath = file_exists($availPath) ? $availPath : $enablePath;
 
-        file_put_contents($targetPath, $content);
+        if (!@file_put_contents($targetPath, $content)) {
+            $tmpFile = tempnam('/tmp', 'nginx_');
+            file_put_contents($tmpFile, $content);
+            shell_exec('sudo cp ' . escapeshellarg($tmpFile) . ' ' . escapeshellarg($targetPath) . ' && sudo chmod 644 ' . escapeshellarg($targetPath) . ' 2>&1');
+            @unlink($tmpFile);
+        }
         $test = shell_exec('sudo nginx -t 2>&1');
         if (strpos($test, 'successful') === false) {
             echo json_encode(['ok' => false, 'error' => 'Nginx-Config ungueltig: ' . $test]);
@@ -836,10 +993,44 @@ function handleNginxAPI(string $action): bool {
         }
         $enablePath = NGINX_SITES_DIR . "/$file";
         $availPath = NGINX_SITES_AVAILABLE . "/$file";
-        if (file_exists($enablePath)) unlink($enablePath);
-        if (file_exists($availPath)) unlink($availPath);
+
+        // Read config BEFORE deletion to extract domains for cert cleanup
+        $confContent = '';
+        if (file_exists($availPath)) {
+            $confContent = @file_get_contents($availPath) ?: '';
+        } elseif (file_exists($enablePath)) {
+            $realPath = is_link($enablePath) ? readlink($enablePath) : $enablePath;
+            $confContent = @file_get_contents($realPath) ?: '';
+        }
+
+        $errors = [];
+        if (file_exists($enablePath)) {
+            if (!@unlink($enablePath)) {
+                shell_exec('sudo rm -f ' . escapeshellarg($enablePath) . ' 2>&1');
+                if (file_exists($enablePath)) $errors[] = "sites-enabled/$file";
+            }
+        }
+        if (file_exists($availPath)) {
+            if (!@unlink($availPath)) {
+                shell_exec('sudo rm -f ' . escapeshellarg($availPath) . ' 2>&1');
+                if (file_exists($availPath)) $errors[] = "sites-available/$file";
+            }
+        }
+
+        // Delete certbot certificate
+        if ($confContent && preg_match('/server_name\s+([^;]+);/', $confContent, $m)) {
+            $siteDomains = array_filter(preg_split('/\s+/', trim($m[1])));
+            if ($siteDomains) {
+                shell_exec("sudo certbot delete --cert-name " . escapeshellarg($siteDomains[0]) . " --non-interactive 2>&1");
+            }
+        }
+
         shell_exec('sudo systemctl reload nginx 2>&1');
-        echo json_encode(['ok' => true]);
+        if ($errors) {
+            echo json_encode(['ok' => false, 'error' => 'Konnte nicht löschen: ' . implode(', ', $errors)]);
+        } else {
+            echo json_encode(['ok' => true]);
+        }
         return true;
     }
 
@@ -859,6 +1050,214 @@ function handleNginxAPI(string $action): bool {
             $success = str_contains($out, 'Successfully') || str_contains($out, 'renewed') || str_contains($out, 'Congratulations');
         }
         echo json_encode(['ok' => $success, 'output' => trim($out)]);
+        return true;
+    }
+
+    // SSE: Nginx Site erstellen mit Live-Progress
+    if ($action === 'nginx-add-stream' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        csrf_check();
+        set_time_limit(120);
+        ignore_user_abort(true);
+        header('Content-Type: text/event-stream');
+        header('Cache-Control: no-cache');
+        header('Connection: keep-alive');
+        header('X-Accel-Buffering: no');
+
+        $sendStep = function(string $step, string $msg, bool $ok = true) {
+            echo "data: " . json_encode(['step' => $step, 'message' => $msg, 'ok' => $ok]) . "\n\n";
+            if (ob_get_level()) ob_flush();
+            flush();
+        };
+
+        $domainRaw = trim($_POST['domain'] ?? '');
+        $target = trim($_POST['target'] ?? '');
+        $withSsl = ($_POST['ssl'] ?? '') === '1';
+        $domains = array_filter(array_map('trim', preg_split('/[\s,]+/', $domainRaw)));
+
+        if (empty($domains)) {
+            $sendStep('error', 'Mindestens eine Domain erforderlich', false);
+            echo "data: " . json_encode(['done' => true, 'ok' => false, 'error' => 'Mindestens eine Domain erforderlich']) . "\n\n";
+            flush(); return true;
+        }
+        if (!preg_match('/^https?:\/\/[\d.:]+$/', $target)) {
+            $sendStep('error', 'Ungültiges Ziel', false);
+            echo "data: " . json_encode(['done' => true, 'ok' => false, 'error' => 'Ungültiges Ziel']) . "\n\n";
+            flush(); return true;
+        }
+
+        $sendStep('config', 'Nginx-Config erstellen...');
+        $withWs = ($_POST['ws'] ?? '') === '1';
+        $forceSsl = ($_POST['force_ssl'] ?? '') === '1';
+        $maxUpload = $_POST['max_upload'] ?? '';
+        $timeout = $_POST['timeout'] ?? '';
+        $serverNames = implode(' ', $domains);
+        $safeFile = preg_replace('/[^a-zA-Z0-9.-]/', '_', $domains[0]);
+        $conf = buildNginxProxyConfig($serverNames, $target, $forceSsl, $maxUpload, $withWs, $timeout);
+
+        $availPath = NGINX_SITES_AVAILABLE . "/$safeFile";
+        $enablePath = NGINX_SITES_DIR . "/$safeFile";
+
+        $sendStep('write', 'Config schreiben: ' . $safeFile);
+        if (!@file_put_contents($availPath, $conf)) {
+            $tmpFile = tempnam('/tmp', 'nginx_');
+            file_put_contents($tmpFile, $conf);
+            shell_exec('sudo cp ' . escapeshellarg($tmpFile) . ' ' . escapeshellarg($availPath) . ' && sudo chmod 644 ' . escapeshellarg($availPath) . ' 2>&1');
+            @unlink($tmpFile);
+        }
+        if (!file_exists($enablePath)) {
+            if (!@symlink($availPath, $enablePath)) {
+                shell_exec('sudo ln -sf ' . escapeshellarg($availPath) . ' ' . escapeshellarg($enablePath) . ' 2>&1');
+            }
+        }
+
+        $sendStep('test', 'Nginx-Config testen...');
+        $test = shell_exec('sudo nginx -t 2>&1');
+        if (strpos($test, 'successful') === false) {
+            @unlink($enablePath);
+            @unlink($availPath);
+            $sendStep('error', 'Nginx-Config ungültig: ' . trim($test), false);
+            echo "data: " . json_encode(['done' => true, 'ok' => false, 'error' => 'Config ungültig']) . "\n\n";
+            flush(); return true;
+        }
+
+        $sendStep('reload', 'Nginx neu laden...');
+        shell_exec('sudo systemctl reload nginx 2>&1');
+
+        if ($withSsl) {
+            $challenge = $_POST['challenge'] ?? 'http';
+            $dnsProvider = $_POST['dns_provider'] ?? '';
+            $email = trim($_POST['email'] ?? '');
+            $certArgs = implode(' ', array_map(fn($d) => '-d ' . escapeshellarg($d), $domains));
+            $emailArg = $email ? '--email ' . escapeshellarg($email) : '--register-unsafely-without-email';
+
+            if ($challenge === 'dns' && $dnsProvider === 'cloudflare') {
+                $cfToken = $_POST['cf_token'] ?? '';
+                $sendStep('certbot', 'SSL via Cloudflare DNS-01 Challenge...');
+
+                $cfIni = tempnam('/tmp', 'cf_');
+                file_put_contents($cfIni, "dns_cloudflare_api_token = $cfToken\n");
+                chmod($cfIni, 0600);
+
+                $sendStep('dns-challenge', 'DNS-Record erstellen & validieren...');
+                $certOut = shell_exec("sudo certbot certonly --dns-cloudflare --dns-cloudflare-credentials " . escapeshellarg($cfIni) . " $certArgs --non-interactive --agree-tos --force-renewal $emailArg 2>&1") ?? '';
+                @unlink($cfIni);
+
+                $sslOk = str_contains($certOut, 'Successfully') || str_contains($certOut, 'Congratulations') || str_contains($certOut, 'not yet due');
+                if ($sslOk) {
+                    $sendStep('install', 'Zertifikat in Nginx installieren...');
+                    shell_exec("sudo certbot install --nginx $certArgs --non-interactive 2>&1");
+                    $sendStep('ssl-done', 'SSL-Zertifikat via Cloudflare DNS aktiviert');
+                } else {
+                    $sendStep('ssl-fail', 'SSL fehlgeschlagen: ' . trim(substr($certOut, 0, 200)), false);
+                }
+
+            } elseif ($challenge === 'dns' && $dnsProvider === 'hetzner') {
+                $hetznerToken = $_POST['hetzner_token'] ?? '';
+                $sendStep('certbot', 'SSL via Hetzner DNS-01 Challenge...');
+
+                $hetznerIni = tempnam('/tmp', 'hz_');
+                file_put_contents($hetznerIni, "dns_hetzner_api_token = $hetznerToken\n");
+                chmod($hetznerIni, 0600);
+
+                $sendStep('dns-challenge', 'DNS-Record erstellen & validieren...');
+                $certOut = shell_exec("sudo certbot certonly --authenticator dns-hetzner --dns-hetzner-credentials " . escapeshellarg($hetznerIni) . " $certArgs --non-interactive --agree-tos --force-renewal $emailArg 2>&1") ?? '';
+                @unlink($hetznerIni);
+
+                $sslOk = str_contains($certOut, 'Successfully') || str_contains($certOut, 'Congratulations') || str_contains($certOut, 'not yet due');
+                if ($sslOk) {
+                    $sendStep('install', 'Zertifikat in Nginx installieren...');
+                    shell_exec("sudo certbot install --nginx $certArgs --non-interactive 2>&1");
+                    $sendStep('ssl-done', 'SSL-Zertifikat via Hetzner DNS aktiviert');
+                } else {
+                    $sendStep('ssl-fail', 'SSL fehlgeschlagen: ' . trim(substr($certOut, 0, 200)), false);
+                }
+
+            } elseif ($challenge === 'dns' && $dnsProvider === 'ipv64') {
+                $ipv64Key = $_POST['ipv64_key'] ?? '';
+                $sendStep('certbot', 'SSL via IPv64 DNS-01 Challenge...');
+
+                $authHook = tempnam('/tmp', 'ipv64_auth_');
+                $cleanHook = tempnam('/tmp', 'ipv64_clean_');
+                file_put_contents($authHook, "#!/bin/bash\ncurl -s -X POST https://ipv64.net/api.php -H 'Authorization: Bearer $ipv64Key' -d \"add_record=\$CERTBOT_DOMAIN\" -d 'praefix=_acme-challenge' -d 'type=TXT' -d \"content=\$CERTBOT_VALIDATION\"\nsleep 15\n");
+                file_put_contents($cleanHook, "#!/bin/bash\ncurl -s -X DELETE https://ipv64.net/api.php -H 'Authorization: Bearer $ipv64Key' -d \"del_record=\$CERTBOT_DOMAIN\" -d 'praefix=_acme-challenge' -d 'type=TXT' -d \"content=\$CERTBOT_VALIDATION\"\n");
+                chmod($authHook, 0700);
+                chmod($cleanHook, 0700);
+
+                $sendStep('dns-challenge', 'DNS-Record erstellen & validieren...');
+                $certOut = shell_exec("sudo certbot certonly --manual --preferred-challenges dns --manual-auth-hook " . escapeshellarg($authHook) . " --manual-cleanup-hook " . escapeshellarg($cleanHook) . " $certArgs --non-interactive --agree-tos --force-renewal $emailArg 2>&1") ?? '';
+                @unlink($authHook);
+                @unlink($cleanHook);
+
+                $sslOk = str_contains($certOut, 'Successfully') || str_contains($certOut, 'Congratulations') || str_contains($certOut, 'not yet due');
+                if ($sslOk) {
+                    $sendStep('install', 'Zertifikat in Nginx installieren...');
+                    shell_exec("sudo certbot install --nginx $certArgs --non-interactive 2>&1");
+                    $sendStep('ssl-done', 'SSL-Zertifikat via IPv64 DNS aktiviert');
+                } else {
+                    $sendStep('ssl-fail', 'SSL fehlgeschlagen: ' . trim(substr($certOut, 0, 200)), false);
+                }
+
+            } else {
+                $sendStep('certbot', 'SSL-Zertifikat anfordern (HTTP-01)...');
+                $certOut = shell_exec("sudo certbot --nginx $certArgs --non-interactive --agree-tos --force-renewal $emailArg 2>&1") ?? '';
+                $sslOk = str_contains($certOut, 'Successfully') || str_contains($certOut, 'Congratulations') || str_contains($certOut, 'not yet due');
+                if ($sslOk) {
+                    $sendStep('ssl-done', 'SSL-Zertifikat erfolgreich aktiviert');
+                } else {
+                    $sendStep('ssl-fail', 'SSL fehlgeschlagen: ' . trim(substr($certOut, 0, 200)), false);
+                }
+            }
+        }
+
+        $sendStep('done', 'Site ' . $domains[0] . ' erfolgreich erstellt');
+        echo "data: " . json_encode(['done' => true, 'ok' => true, 'message' => 'Site ' . $domains[0] . ' erstellt']) . "\n\n";
+        if (ob_get_level()) ob_flush();
+        flush();
+        return true;
+    }
+
+    // SSE: SSL-Zertifikat erneuern mit Live-Progress
+    if ($action === 'nginx-renew-stream' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        csrf_check();
+        set_time_limit(120);
+        ignore_user_abort(true);
+        header('Content-Type: text/event-stream');
+        header('Cache-Control: no-cache');
+        header('Connection: keep-alive');
+        header('X-Accel-Buffering: no');
+
+        $sendStep = function(string $step, string $msg, bool $ok = true) {
+            echo "data: " . json_encode(['step' => $step, 'message' => $msg, 'ok' => $ok]) . "\n\n";
+            if (ob_get_level()) ob_flush();
+            flush();
+        };
+
+        $domain = trim($_POST['domain'] ?? '');
+        if (!preg_match('/^[a-zA-Z0-9.*-]+\.[a-zA-Z]{2,}$/', $domain)) {
+            $sendStep('error', 'Ungültiger Domain-Name', false);
+            echo "data: " . json_encode(['done' => true, 'ok' => false]) . "\n\n";
+            flush(); return true;
+        }
+
+        $sendStep('renew', 'Zertifikat erneuern für ' . $domain . '...');
+        $out = shell_exec("sudo certbot renew --cert-name " . escapeshellarg($domain) . " --force-renewal 2>&1") ?? '';
+        $success = str_contains($out, 'Successfully') || str_contains($out, 'renewed') || str_contains($out, 'Congratulations');
+
+        if (!$success) {
+            $sendStep('fallback', 'Fallback: certbot --nginx...');
+            $out = shell_exec("sudo certbot --nginx -d " . escapeshellarg($domain) . " --non-interactive --agree-tos --register-unsafely-without-email --force-renewal 2>&1") ?? '';
+            $success = str_contains($out, 'Successfully') || str_contains($out, 'renewed') || str_contains($out, 'Congratulations');
+        }
+
+        if ($success) {
+            $sendStep('done', 'Zertifikat für ' . $domain . ' erfolgreich erneuert');
+        } else {
+            $sendStep('error', 'Erneuerung fehlgeschlagen: ' . trim(substr($out, 0, 300)), false);
+        }
+
+        echo "data: " . json_encode(['done' => true, 'ok' => $success, 'output' => trim($out)]) . "\n\n";
+        if (ob_get_level()) ob_flush();
+        flush();
         return true;
     }
 
@@ -1017,6 +1416,13 @@ function handleNginxAPI(string $action): bool {
 function handleVmsAPI(string $action): bool {
     // GET: Alle VMs und CTs auf diesem Node via pvesh
     if ($action === 'pve-vms') {
+        $cacheFile = '/tmp/floppyops-lite-pve-vms.json';
+        $force = ($_GET['force'] ?? '') === '1';
+        if (!$force && file_exists($cacheFile) && (time() - filemtime($cacheFile)) < 15) {
+            echo file_get_contents($cacheFile);
+            return true;
+        }
+
         $node = trim(shell_exec('hostname 2>/dev/null') ?? '');
         // CTs
         $ctRaw = shell_exec("sudo pvesh get /nodes/$node/lxc --output-format json 2>/dev/null") ?? '[]';
@@ -1047,7 +1453,55 @@ function handleVmsAPI(string $action): bool {
             ];
         }
         usort($result, fn($a, $b) => $a['vmid'] - $b['vmid']);
-        echo json_encode(['ok' => true, 'vms' => $result, 'node' => $node]);
+        $json = json_encode(['ok' => true, 'vms' => $result, 'node' => $node]);
+        @file_put_contents($cacheFile, $json);
+        echo $json;
+        return true;
+    }
+
+    // GET: CT/VM list with IPs (for nginx target selection)
+    if ($action === 'pve-ct-ips') {
+        $node = trim(shell_exec('hostname 2>/dev/null') ?? '');
+        $result = [];
+        // CTs
+        $ctRaw = shell_exec("sudo pvesh get /nodes/$node/lxc --output-format json 2>/dev/null") ?? '[]';
+        foreach (json_decode($ctRaw, true) ?: [] as $ct) {
+            $vmid = (int)$ct['vmid'];
+            $confFile = "/etc/pve/lxc/{$vmid}.conf";
+            $ip = '';
+            if (file_exists($confFile)) {
+                $conf = file_get_contents($confFile);
+                if (preg_match('/ip=(\d+\.\d+\.\d+\.\d+)/', $conf, $m)) {
+                    $ip = $m[1];
+                }
+            }
+            if ($ip) {
+                $result[] = ['vmid' => $vmid, 'name' => $ct['name'] ?? '', 'ip' => $ip, 'status' => $ct['status'] ?? ''];
+            }
+        }
+        // VMs (try agent or config)
+        $vmRaw = shell_exec("sudo pvesh get /nodes/$node/qemu --output-format json 2>/dev/null") ?? '[]';
+        foreach (json_decode($vmRaw, true) ?: [] as $vm) {
+            $vmid = (int)$vm['vmid'];
+            $agentNet = shell_exec("sudo pvesh get /nodes/$node/qemu/$vmid/agent/network-get-interfaces --output-format json 2>/dev/null") ?? '';
+            $ip = '';
+            if ($agentNet) {
+                $ifaces = json_decode($agentNet, true)['result'] ?? [];
+                foreach ($ifaces as $iface) {
+                    foreach ($iface['ip-addresses'] ?? [] as $addr) {
+                        if ($addr['ip-address-type'] === 'ipv4' && !str_starts_with($addr['ip-address'], '127.')) {
+                            $ip = $addr['ip-address'];
+                            break 2;
+                        }
+                    }
+                }
+            }
+            if ($ip) {
+                $result[] = ['vmid' => $vmid, 'name' => $vm['name'] ?? '', 'ip' => $ip, 'status' => $vm['status'] ?? ''];
+            }
+        }
+        usort($result, fn($a, $b) => $a['vmid'] - $b['vmid']);
+        echo json_encode(['ok' => true, 'targets' => $result]);
         return true;
     }
 
@@ -1178,6 +1632,8 @@ function handleVmsAPI(string $action): bool {
         $onboot = ($_POST['onboot'] ?? '');
         $newIp = trim($_POST['new_ip'] ?? '');
         $newGw = trim($_POST['new_gw'] ?? '');
+        $newIp6 = trim($_POST['new_ip6'] ?? '');
+        $newGw6 = trim($_POST['new_gw6'] ?? '');
         $newBridge = trim($_POST['new_bridge'] ?? '');
         $newDns = trim($_POST['new_dns'] ?? '');
 
@@ -1269,7 +1725,7 @@ function handleVmsAPI(string $action): bool {
             } else {
                 $conf = preg_replace('/(^net0:.*)$/m', '$1,link_down=1', $conf);
             }
-        } elseif ($newIp || $newGw || $newBridge || $newDns) {
+        } elseif ($newIp || $newGw || $newIp6 || $newGw6 || $newBridge || $newDns) {
             // Custom network settings
             if ($isLxc) {
                 if ($newIp) $conf = preg_replace('/ip=[0-9.\/]+/', 'ip=' . $newIp, $conf);
@@ -1278,6 +1734,21 @@ function handleVmsAPI(string $action): bool {
                         $conf = preg_replace('/gw=[0-9.]+/', 'gw=' . $newGw, $conf);
                     } else {
                         $conf = preg_replace('/(^net0:.*)$/m', '$1,gw=' . $newGw, $conf);
+                    }
+                }
+                // IPv6
+                if ($newIp6) {
+                    if (preg_match('/ip6=[^,]+/', $conf)) {
+                        $conf = preg_replace('/ip6=[^,]+/', 'ip6=' . $newIp6, $conf);
+                    } else {
+                        $conf = preg_replace('/(^net0:.*)$/m', '$1,ip6=' . $newIp6, $conf);
+                    }
+                }
+                if ($newGw6) {
+                    if (preg_match('/gw6=[^,\s]+/', $conf)) {
+                        $conf = preg_replace('/gw6=[^,\s]+/', 'gw6=' . $newGw6, $conf);
+                    } else {
+                        $conf = preg_replace('/(^net0:.*)$/m', '$1,gw6=' . $newGw6, $conf);
                     }
                 }
                 if ($newDns) {
@@ -1338,6 +1809,7 @@ function handleVmsAPI(string $action): bool {
         $endpoint = $type === 'qemu' ? "qemu/$vmid" : "lxc/$vmid";
         $statusCmd = $act === 'restart' ? 'reboot' : $act;
         $out = shell_exec("sudo pvesh create /nodes/$node/$endpoint/status/$statusCmd 2>&1") ?? '';
+        @unlink('/tmp/floppyops-lite-pve-vms.json'); // invalidate cache
         echo json_encode(['ok' => !str_contains($out, 'ERROR'), 'output' => trim($out)]);
         return true;
     }
@@ -1375,6 +1847,13 @@ function handleVmsAPI(string $action): bool {
 function handleZfsAPI(string $action): bool {
     // GET: ZFS Pools, Datasets, Snapshots und Auto-Snapshot Status
     if ($action === 'zfs-status') {
+        // Cache for 5 seconds to avoid repeated slow calls
+        $cacheFile = '/tmp/floppyops-lite-zfs-cache.json';
+        if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < 5) {
+            echo file_get_contents($cacheFile);
+            return true;
+        }
+
         // Pools
         $poolRaw = shell_exec('sudo /usr/sbin/zpool list -Hp -o name,size,alloc,free,health,frag,cap 2>/dev/null') ?? '';
         $pools = [];
@@ -1430,7 +1909,9 @@ function handleZfsAPI(string $action): bool {
             }
         }
 
-        echo json_encode(['ok' => true, 'pools' => $pools, 'datasets' => $datasets, 'snapshots' => array_reverse($snapshots), 'auto_installed' => $autoInstalled, 'auto_crons' => $autoCrons]);
+        $json = json_encode(['ok' => true, 'pools' => $pools, 'datasets' => $datasets, 'snapshots' => array_reverse($snapshots), 'auto_installed' => $autoInstalled, 'auto_crons' => $autoCrons]);
+        @file_put_contents($cacheFile, $json);
+        echo $json;
         return true;
     }
 
@@ -1567,11 +2048,26 @@ function handleZfsAPI(string $action): bool {
  * WireGuard VPN Verwaltung: Tunnel-Status, Config lesen/speichern,
  * Keys generieren, Tunnel erstellen/loeschen/starten/stoppen.
  *
- * Endpoints: wg-status, wg-config, wg-save, wg-genkeys, wg-net-ifaces, wg-list-ifaces, wg-create, wg-delete, wg-control
+ * Endpoints: wg-status, wg-config, wg-save, wg-genkeys, wg-net-ifaces, wg-list-ifaces, wg-create, wg-delete, wg-control, wg-add-peer, wg-update-peer, wg-remove-peer, wg-server-info, wg-import
  *
  * @param string $action Der API-Action-Name
  * @return bool true wenn behandelt
  */
+function wgWriteConf(string $path, string $content): bool {
+    // Try direct write first, fallback to sudo tee
+    $ok = @file_put_contents($path, $content);
+    if ($ok === false) {
+        $tmp = tempnam('/tmp', 'wgconf_');
+        file_put_contents($tmp, $content);
+        shell_exec("sudo cp " . escapeshellarg($tmp) . " " . escapeshellarg($path) . " 2>&1");
+        shell_exec("sudo chmod 660 " . escapeshellarg($path) . " 2>&1");
+        shell_exec("sudo chown root:www-data " . escapeshellarg($path) . " 2>&1");
+        unlink($tmp);
+        $ok = file_exists($path) && file_get_contents($path) === $content;
+    }
+    return (bool)$ok;
+}
+
 function handleWireguardAPI(string $action): bool {
     // GET: WireGuard Status aller Interfaces + Peers
     if ($action === 'wg-status') {
@@ -1599,6 +2095,7 @@ function handleWireguardAPI(string $action): bool {
                 $handshake = (int)$cols[5];
                 $interfaces[$ifName]['peers'][] = [
                     'public_key' => $cols[1],
+                    'psk' => ($cols[2] !== '(none)') ? $cols[2] : null,
                     'endpoint' => $cols[3] !== '(none)' ? $cols[3] : null,
                     'allowed_ips' => $cols[4],
                     'latest_handshake' => $handshake > 0 ? date('Y-m-d H:i:s', $handshake) : null,
@@ -1619,10 +2116,11 @@ function handleWireguardAPI(string $action): bool {
         }
         unset($iface);
 
-        // Also check for available configs without running interfaces
+        // Merge config-based peers with live data for ALL interfaces
         $configs = glob('/etc/wireguard/wg*.conf');
         foreach ($configs as $confPath) {
             $name = basename($confPath, '.conf');
+
             if (!isset($interfaces[$name])) {
                 $active = trim(shell_exec("systemctl is-active wg-quick@$name 2>/dev/null") ?? '');
                 $interfaces[$name] = [
@@ -1633,6 +2131,75 @@ function handleWireguardAPI(string $action): bool {
                     'active' => $active === 'active',
                     'status' => $active,
                 ];
+            }
+
+            $conf = file_get_contents($confPath);
+
+            // Check if config was modified after service started → restart needed
+            $confMtime = filemtime($confPath);
+            $svcStart = 0;
+            $startRaw = trim(shell_exec("systemctl show wg-quick@$name --property=ActiveEnterTimestamp --value 2>/dev/null") ?? '');
+            if ($startRaw) $svcStart = strtotime($startRaw) ?: 0;
+            $interfaces[$name]['needs_restart'] = $interfaces[$name]['active'] && $confMtime > $svcStart;
+
+            // Extract interface info from config
+            if (!$interfaces[$name]['listen_port'] && preg_match('/ListenPort\s*=\s*(\d+)/', $conf, $pm)) {
+                $interfaces[$name]['listen_port'] = (int)$pm[1];
+            }
+            if (!$interfaces[$name]['public_key'] && preg_match('/PrivateKey\s*=\s*(\S+)/', $conf, $pm)) {
+                $pub = trim(shell_exec("echo '{$pm[1]}' | wg pubkey 2>/dev/null") ?? '');
+                if ($pub) $interfaces[$name]['public_key'] = $pub;
+            }
+            if (empty($interfaces[$name]['address']) && preg_match('/Address\s*=\s*(\S+)/', $conf, $pm)) {
+                $interfaces[$name]['address'] = $pm[1];
+            }
+
+            // Build map of existing live peers by public key
+            $livePeerKeys = [];
+            foreach ($interfaces[$name]['peers'] as &$lp) {
+                $livePeerKeys[$lp['public_key']] = true;
+                // Enrich live peers with PSK + name from config
+                if (preg_match('/\[Peer\][^[]*PublicKey\s*=\s*' . preg_quote($lp['public_key'], '/') . '[^[]*/s', $conf, $pBlock)) {
+                    if (empty($lp['psk']) && preg_match('/PresharedKey\s*=\s*(\S+)/', $pBlock[0], $pskM)) {
+                        $lp['psk'] = $pskM[1];
+                    }
+                    if (empty($lp['name']) && preg_match('/^#\s*(.+)/m', $pBlock[0], $cm)) {
+                        $lp['name'] = trim($cm[1]);
+                    }
+                }
+            }
+            unset($lp);
+
+            // Parse config [Peer] sections and add missing peers (not yet live)
+            $peerBlocks = preg_split('/\[Peer\]/i', $conf);
+            array_shift($peerBlocks); // remove [Interface] part
+            foreach ($peerBlocks as $block) {
+                $pubKey = '';
+                if (preg_match('/PublicKey\s*=\s*(\S+)/', $block, $m)) $pubKey = $m[1];
+                if (!$pubKey || isset($livePeerKeys[$pubKey])) continue; // already live
+
+                // Extract comment/name (# line before PublicKey)
+                $peerName = '';
+                if (preg_match('/^#\s*(.+)/m', $block, $cm)) $peerName = trim($cm[1]);
+
+                $peer = [
+                    'public_key' => $pubKey,
+                    'name' => $peerName,
+                    'psk' => null,
+                    'endpoint' => null,
+                    'allowed_ips' => '',
+                    'latest_handshake' => null,
+                    'handshake_ago' => null,
+                    'rx_bytes' => 0,
+                    'tx_bytes' => 0,
+                    'keepalive' => 0,
+                    'from_config' => true,
+                ];
+                if (preg_match('/PresharedKey\s*=\s*(\S+)/', $block, $m)) $peer['psk'] = $m[1];
+                if (preg_match('/Endpoint\s*=\s*(\S+)/', $block, $m)) $peer['endpoint'] = $m[1];
+                if (preg_match('/AllowedIPs\s*=\s*(.+)/', $block, $m)) $peer['allowed_ips'] = trim($m[1]);
+                if (preg_match('/PersistentKeepalive\s*=\s*(\d+)/', $block, $m)) $peer['keepalive'] = (int)$m[1];
+                $interfaces[$name]['peers'][] = $peer;
             }
         }
 
@@ -1663,8 +2230,7 @@ function handleWireguardAPI(string $action): bool {
             return true;
         }
         $path = "/etc/wireguard/$iface.conf";
-        file_put_contents($path, $content);
-        chmod($path, 0600);
+        wgWriteConf($path, $content);
         echo json_encode(['ok' => true]);
         return true;
     }
@@ -1746,10 +2312,7 @@ function handleWireguardAPI(string $action): bool {
         if ($peerAllowedIps) $conf .= "AllowedIPs = $peerAllowedIps\n";
         if ($keepalive > 0) $conf .= "PersistentKeepalive = $keepalive\n";
 
-        file_put_contents($path, $conf);
-        chmod($path, 0640);
-        chown($path, 'root');
-        chgrp($path, 'www-data');
+        wgWriteConf($path, $conf);
 
         $started = false;
         if ($autoStart) {
@@ -1758,7 +2321,22 @@ function handleWireguardAPI(string $action): bool {
             $started = trim(shell_exec("systemctl is-active wg-quick@$iface 2>/dev/null") ?? '') === 'active';
         }
 
-        echo json_encode(['ok' => true, 'interface' => $iface, 'started' => $started]);
+        // Firewall: Port in PVE Firewall eintragen wenn gewuenscht
+        $fwAdded = false;
+        $addFw = ($_POST['add_firewall'] ?? '') === '1';
+        if ($addFw && $listenPort > 0) {
+            $node = trim(shell_exec('hostname -s 2>/dev/null') ?? '');
+            if ($node) {
+                $comment = "WireGuard $iface (auto-added by FloppyOps)";
+                shell_exec("sudo pvesh create /nodes/" . escapeshellarg($node) . "/firewall/rules"
+                    . " --action ACCEPT --type in --proto udp --dport " . escapeshellarg((string)$listenPort)
+                    . " --enable 1 --comment " . escapeshellarg($comment)
+                    . " 2>&1");
+                $fwAdded = true;
+            }
+        }
+
+        echo json_encode(['ok' => true, 'interface' => $iface, 'started' => $started, 'fw_added' => $fwAdded]);
         return true;
     }
 
@@ -1788,6 +2366,307 @@ function handleWireguardAPI(string $action): bool {
         $out = shell_exec("sudo systemctl $cmd wg-quick@$iface 2>&1") ?? '';
         $active = trim(shell_exec("systemctl is-active wg-quick@$iface 2>/dev/null") ?? '');
         echo json_encode(['ok' => true, 'status' => $active, 'output' => trim($out)]);
+        return true;
+    }
+
+    // POST: WireGuard Config importieren (von anderem VPN-Server)
+    if ($action === 'wg-import' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        csrf_check();
+        $iface = preg_replace('/[^a-zA-Z0-9]/', '', $_POST['iface'] ?? '');
+        $content = trim($_POST['content'] ?? '');
+        $autoStart = ($_POST['auto_start'] ?? '') === '1';
+        $addFw = ($_POST['add_firewall'] ?? '') === '1';
+
+        if (!$iface || !$content) {
+            echo json_encode(['ok' => false, 'error' => 'Interface-Name und Config-Inhalt erforderlich']);
+            return true;
+        }
+
+        // Validate: must contain [Interface] section
+        if (stripos($content, '[Interface]') === false) {
+            echo json_encode(['ok' => false, 'error' => 'Ungültige Config — [Interface] Sektion fehlt']);
+            return true;
+        }
+
+        $path = "/etc/wireguard/$iface.conf";
+        if (file_exists($path)) {
+            echo json_encode(['ok' => false, 'error' => "Interface $iface existiert bereits"]);
+            return true;
+        }
+
+        wgWriteConf($path, $content . "\n");
+
+        $started = false;
+        if ($autoStart) {
+            shell_exec("sudo systemctl enable wg-quick@$iface 2>&1");
+            shell_exec("sudo systemctl start wg-quick@$iface 2>&1");
+            $started = trim(shell_exec("systemctl is-active wg-quick@$iface 2>/dev/null") ?? '') === 'active';
+        }
+
+        // Firewall: extract ListenPort from config
+        $fwAdded = false;
+        if ($addFw && preg_match('/ListenPort\s*=\s*(\d+)/', $content, $pm)) {
+            $port = (int)$pm[1];
+            if ($port > 0) {
+                $node = trim(shell_exec('hostname -s 2>/dev/null') ?? '');
+                if ($node) {
+                    $comment = "WireGuard $iface (imported by FloppyOps)";
+                    shell_exec("sudo pvesh create /nodes/" . escapeshellarg($node) . "/firewall/rules"
+                        . " --action ACCEPT --type in --proto udp --dport " . escapeshellarg((string)$port)
+                        . " --enable 1 --comment " . escapeshellarg($comment)
+                        . " 2>&1");
+                    $fwAdded = true;
+                }
+            }
+        }
+
+        echo json_encode(['ok' => true, 'interface' => $iface, 'started' => $started, 'fw_added' => $fwAdded]);
+        return true;
+    }
+
+    // GET: WireGuard Logs (journalctl)
+    if ($action === 'wg-logs') {
+        $iface = preg_replace('/[^a-zA-Z0-9]/', '', $_GET['iface'] ?? '');
+        $lines = (int)($_GET['lines'] ?? 50);
+        if ($lines < 10) $lines = 10;
+        if ($lines > 500) $lines = 500;
+        if (!$iface) { echo json_encode(['ok' => false, 'error' => 'Kein Interface']); return true; }
+        $log = shell_exec("sudo journalctl -u wg-quick@$iface --no-pager -n $lines 2>&1") ?? '';
+        $dmesg = trim(shell_exec("dmesg | grep -i wireguard 2>/dev/null") ?? '');
+        echo json_encode(['ok' => true, 'log' => trim($log), 'dmesg' => $dmesg]);
+        return true;
+    }
+
+    // GET: Server-Info fuer ein Interface (Public Key, Listen Port, Public IP)
+    if ($action === 'wg-server-info') {
+        $iface = preg_replace('/[^a-zA-Z0-9]/', '', $_GET['iface'] ?? '');
+        if (!$iface) { echo json_encode(['ok' => false, 'error' => 'Kein Interface']); return true; }
+
+        $path = "/etc/wireguard/$iface.conf";
+        if (!file_exists($path)) { echo json_encode(['ok' => false, 'error' => 'Config nicht gefunden']); return true; }
+
+        $conf = file_get_contents($path);
+        $serverPub = '';
+        $listenPort = 0;
+        $address = '';
+
+        // Extract PrivateKey → derive PublicKey
+        if (preg_match('/PrivateKey\s*=\s*(\S+)/', $conf, $m)) {
+            $serverPub = trim(shell_exec("echo '{$m[1]}' | wg pubkey 2>/dev/null") ?? '');
+        }
+        if (preg_match('/ListenPort\s*=\s*(\d+)/', $conf, $m)) $listenPort = (int)$m[1];
+        if (preg_match('/Address\s*=\s*(\S+)/', $conf, $m)) $address = $m[1];
+
+        // Detect public IP
+        $publicIp = trim(shell_exec("curl -4 -s --max-time 3 ifconfig.me 2>/dev/null") ?? '');
+
+        // Count existing peers to suggest next IP
+        $peerCount = preg_match_all('/\[Peer\]/', $conf);
+        $nextPeerNum = $peerCount + 1;
+
+        // Suggest next peer IP from address subnet
+        $suggestedIp = '';
+        if (preg_match('/^(\d+\.\d+\.\d+)\.(\d+)\/(\d+)$/', $address, $am)) {
+            $suggestedIp = $am[1] . '.' . ($am[2] + $nextPeerNum) . '/' . $am[3];
+        }
+
+        echo json_encode([
+            'ok' => true,
+            'public_key' => $serverPub,
+            'listen_port' => $listenPort,
+            'address' => $address,
+            'public_ip' => $publicIp,
+            'suggested_ip' => $suggestedIp,
+            'peer_count' => $peerCount,
+        ]);
+        return true;
+    }
+
+    // POST: Peer zu bestehendem Interface hinzufuegen
+    if ($action === 'wg-add-peer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        csrf_check();
+        $iface = preg_replace('/[^a-zA-Z0-9]/', '', $_POST['iface'] ?? '');
+        $peerPubKey = trim($_POST['peer_public_key'] ?? '');
+        $peerAllowedIps = trim($_POST['allowed_ips'] ?? '');
+        $peerPsk = trim($_POST['psk'] ?? '');
+        $keepalive = (int)($_POST['keepalive'] ?? 25);
+        $peerEndpoint = trim($_POST['endpoint'] ?? '');
+        $peerName = trim(preg_replace('/[^\w\s\-\.\(\)]/', '', $_POST['peer_name'] ?? ''));
+
+        if (!$iface || !$peerPubKey || !$peerAllowedIps) {
+            echo json_encode(['ok' => false, 'error' => 'Interface, Public Key und Allowed IPs erforderlich']);
+            return true;
+        }
+
+        $path = "/etc/wireguard/$iface.conf";
+        if (!file_exists($path)) {
+            echo json_encode(['ok' => false, 'error' => "Config $iface.conf nicht gefunden"]);
+            return true;
+        }
+
+        // Check if peer already exists
+        $conf = file_get_contents($path);
+        if (strpos($conf, $peerPubKey) !== false) {
+            echo json_encode(['ok' => false, 'error' => 'Peer mit diesem Public Key existiert bereits']);
+            return true;
+        }
+
+        // Append peer section to config
+        $peerSection = "\n[Peer]\n";
+        if ($peerName) $peerSection .= "# $peerName\n";
+        $peerSection .= "PublicKey = $peerPubKey\n";
+        if ($peerPsk) $peerSection .= "PresharedKey = $peerPsk\n";
+        if ($peerEndpoint) $peerSection .= "Endpoint = $peerEndpoint\n";
+        $peerSection .= "AllowedIPs = $peerAllowedIps\n";
+        if ($keepalive > 0) $peerSection .= "PersistentKeepalive = $keepalive\n";
+
+        if (!wgWriteConf($path, $conf . $peerSection)) {
+            echo json_encode(['ok' => false, 'error' => 'Config konnte nicht geschrieben werden — Berechtigung prüfen']);
+            return true;
+        }
+
+        // If interface is running, add peer live via wg set
+        $isActive = trim(shell_exec("systemctl is-active wg-quick@$iface 2>/dev/null") ?? '') === 'active';
+        if ($isActive) {
+            $cmd = "sudo wg set $iface peer $peerPubKey allowed-ips $peerAllowedIps";
+            if ($peerPsk) {
+                // PSK must be passed via file
+                $tmpPsk = tempnam('/tmp', 'wgpsk_');
+                file_put_contents($tmpPsk, $peerPsk);
+                $cmd .= " preshared-key $tmpPsk";
+            }
+            if ($keepalive > 0) $cmd .= " persistent-keepalive $keepalive";
+            shell_exec("$cmd 2>&1");
+            if (isset($tmpPsk)) unlink($tmpPsk);
+        }
+
+        echo json_encode(['ok' => true, 'live' => $isActive]);
+        return true;
+    }
+
+    // POST: Peer in Config aktualisieren
+    if ($action === 'wg-update-peer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        csrf_check();
+        $iface = preg_replace('/[^a-zA-Z0-9]/', '', $_POST['iface'] ?? '');
+        $pubKey = trim($_POST['public_key'] ?? '');
+        $name = trim(preg_replace('/[^\w\s\-\.\(\)]/', '', $_POST['name'] ?? ''));
+        $endpoint = trim($_POST['endpoint'] ?? '');
+        $keepalive = (int)($_POST['keepalive'] ?? 25);
+        $allowedIps = trim($_POST['allowed_ips'] ?? '');
+        $psk = trim($_POST['psk'] ?? '');
+
+        if (!$iface || !$pubKey || !$allowedIps) {
+            echo json_encode(['ok' => false, 'error' => 'Interface, Public Key und AllowedIPs erforderlich']);
+            return true;
+        }
+
+        $path = "/etc/wireguard/$iface.conf";
+        if (!file_exists($path)) {
+            echo json_encode(['ok' => false, 'error' => "Config nicht gefunden"]);
+            return true;
+        }
+
+        $conf = file_get_contents($path);
+
+        // Remove old [Peer] block for this public key
+        $parts = preg_split('/(?=\[Peer\])/i', $conf);
+        $newConf = '';
+        foreach ($parts as $part) {
+            if (strpos($part, $pubKey) !== false && preg_match('/\[Peer\]/i', $part)) {
+                continue; // skip old peer block
+            }
+            $newConf .= $part;
+        }
+
+        // Append updated peer
+        $newConf = rtrim($newConf) . "\n\n[Peer]\n";
+        if ($name) $newConf .= "# $name\n";
+        $newConf .= "PublicKey = $pubKey\n";
+        if ($psk) $newConf .= "PresharedKey = $psk\n";
+        if ($endpoint) $newConf .= "Endpoint = $endpoint\n";
+        $newConf .= "AllowedIPs = $allowedIps\n";
+        if ($keepalive > 0) $newConf .= "PersistentKeepalive = $keepalive\n";
+
+        if (!wgWriteConf($path, $newConf)) {
+            echo json_encode(['ok' => false, 'error' => 'Config konnte nicht geschrieben werden']);
+            return true;
+        }
+
+        echo json_encode(['ok' => true]);
+        return true;
+    }
+
+    // POST: Peer von Interface entfernen
+    if ($action === 'wg-remove-peer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        csrf_check();
+        $iface = preg_replace('/[^a-zA-Z0-9]/', '', $_POST['iface'] ?? '');
+        $peerPubKey = trim($_POST['public_key'] ?? '');
+
+        if (!$iface || !$peerPubKey) {
+            echo json_encode(['ok' => false, 'error' => 'Interface und Public Key erforderlich']);
+            return true;
+        }
+
+        $path = "/etc/wireguard/$iface.conf";
+        if (!file_exists($path)) {
+            echo json_encode(['ok' => false, 'error' => "Config nicht gefunden"]);
+            return true;
+        }
+
+        // Parse config and remove the matching [Peer] block
+        $conf = file_get_contents($path);
+        $lines = explode("\n", $conf);
+        $newLines = [];
+        $inPeer = false;
+        $skipPeer = false;
+
+        foreach ($lines as $line) {
+            $trimmed = trim($line);
+            if ($trimmed === '[Peer]') {
+                $inPeer = true;
+                $skipPeer = false;
+                $peerBuffer = [$line];
+                continue;
+            }
+            if ($inPeer) {
+                if ($trimmed === '[Interface]' || $trimmed === '[Peer]') {
+                    // New section — flush buffered peer if not skipped
+                    if (!$skipPeer) {
+                        $newLines = array_merge($newLines, $peerBuffer);
+                    }
+                    if ($trimmed === '[Peer]') {
+                        $peerBuffer = [$line];
+                        $skipPeer = false;
+                        continue;
+                    } else {
+                        $inPeer = false;
+                        $newLines[] = $line;
+                        continue;
+                    }
+                }
+                $peerBuffer[] = $line;
+                if (preg_match('/PublicKey\s*=\s*(\S+)/', $trimmed, $m) && $m[1] === $peerPubKey) {
+                    $skipPeer = true;
+                }
+                continue;
+            }
+            $newLines[] = $line;
+        }
+
+        // Flush last peer buffer
+        if ($inPeer && !$skipPeer) {
+            $newLines = array_merge($newLines, $peerBuffer);
+        }
+
+        wgWriteConf($path, implode("\n", $newLines));
+
+        // Remove peer live if interface is running
+        $isActive = trim(shell_exec("systemctl is-active wg-quick@$iface 2>/dev/null") ?? '') === 'active';
+        if ($isActive) {
+            shell_exec("sudo wg set $iface peer $peerPubKey remove 2>&1");
+        }
+
+        echo json_encode(['ok' => true, 'live' => $isActive]);
         return true;
     }
 
@@ -2023,6 +2902,7 @@ function handleUpdatesAPI(string $action): bool {
     // POST: No-Subscription Repository hinzufuegen
     if ($action === 'repo-add-nosub' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
+        $output = [];
         $codename = trim(shell_exec('lsb_release -cs 2>/dev/null') ?? 'bookworm');
         $isTrixie = ($codename === 'trixie');
 
@@ -2657,6 +3537,12 @@ function handleFirewallAPI(string $action): bool {
 
     // GET: Alle VMs/CTs mit Firewall-Status und Template-Zuweisung
     if ($action === 'fw-vm-list') {
+        $fwCache = '/tmp/floppyops-lite-fw-vmlist.json';
+        if (file_exists($fwCache) && (time() - filemtime($fwCache)) < 30) {
+            echo file_get_contents($fwCache);
+            return true;
+        }
+
         $node = trim(shell_exec('hostname 2>/dev/null') ?? '');
         $ctRaw = shell_exec("sudo pvesh get /nodes/$node/lxc --output-format json 2>/dev/null") ?? '[]';
         $vmRaw = shell_exec("sudo pvesh get /nodes/$node/qemu --output-format json 2>/dev/null") ?? '[]';
@@ -2708,7 +3594,9 @@ function handleFirewallAPI(string $action): bool {
             $g['template'] = $assignments[$key] ?? null;
         }
         unset($g);
-        echo json_encode(['ok' => true, 'guests' => $guests, 'node' => $node]);
+        $json = json_encode(['ok' => true, 'guests' => $guests, 'node' => $node]);
+        @file_put_contents($fwCache, $json);
+        echo $json;
         return true;
     }
 
@@ -2859,8 +3747,11 @@ function handleFirewallAPI(string $action): bool {
 // Dispatch: Jede Handler-Funktion wird der Reihe nach aufgerufen.
 // Die erste die true zurueckgibt hat den Request behandelt.
 if (isset($_GET['api'])) {
-    header('Content-Type: application/json');
     $action = $_GET['api'];
+    $sseActions = ['nginx-add-stream', 'nginx-renew-stream'];
+    if (!in_array($action, $sseActions)) {
+        header('Content-Type: application/json');
+    }
 
     if (handleDashboardAPI($action)) exit;
     if (handleFail2banAPI($action)) exit;
@@ -2882,13 +3773,13 @@ if (isset($_GET['api'])) {
 <!-- ║                    HTML + CSS + LAYOUT                        ║ -->
 <!-- ╚══════════════════════════════════════════════════════════════╝ -->
 <!DOCTYPE html>
-<html lang="de">
+<html lang="<?= $lang ?>">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title><?= APP_NAME ?></title>
 <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAAGYktHRAAAAAAAAPlDu38AAAAJcEhZcwAACxMAAAsTAQCanBgAAAAHdElNRQfqBAILOC7jnqLaAAAKyUlEQVRYw8WVd3CcxRnGn/32K/fdd10n3VknnSSfXDEGNwm5QBJMiW0gEAKZCSGkkZ5Mepn0MpkMaTYkkAQwwzCBFJyYQGaMY8cIN8BgY8myLVmS1axyd9L1r+5u/iDM2JS0f/L8tzs77/Obd3efF/g/i5y/WHLx8isURXlc8/l0KstEkiQJwDDn7MOHu7v3v3oulWpUVJ8eZVxECZF8gHAUWZ7ljM0NDZ5xAGDtFVdsASH3CCGSnDHuOA6smllxbPv6wYH+wxcAeHd1QbLH6eU7jFjO1bb5fOqtsiwTQiQQSYIQ/AiEeH8pnx8ClTsKhcJVnm11QHjzJAifAHEkWZ32+QPHw5HoU36/XhUEDwBkkRAcnHE4js0ty97+T3e+uO/ddknE5jP6oWdeAWDfTnaCiC9JlLi9c/Lge/ZH1nBJvopSCiJJAADO2FOyRKeKuXPXwpwVIUUMBv3yiCqjJCApFQfJooXFnhwIBWPJY0KiDULwFZxxyfNcocB9ascNlZ5MiM3njieB43v0W7ke+Z+dmAVHGwdWLIu65V+tn33g9r0hv0TpOgKAKspUQNeXsOL0psaw0l3ftuCuYF1TgCMHivlizW7PtDI3Nyj1nOi7vFwxH6zmRq/kSmgHUVQXQnSCsz2/v8E8mwnxz3Am/OBkP4SYu+ANsG8kVoOIh0GwRILIPTmsP/ipA8ZVzHMXtbc0jhYK5fZVHWvk9LIVZdsy87ds3sR8mubatm0/vXu3IwD7dP+ZhtP9/Qskp0LGzg5NGXWpg9VK0XhoY+3EhmbxQS4QBucvQZDb6fdnTgDAqx0A/d70Efb1hk8KxrczIdJbUvZtU8vx2N+kFbj60sb59+54TvYlm5Evl4PxYDDY0toKw+9HuVzCSy/3oDmdBqEUjstg24DJ5OS8+sTG92Uqj22oc27jJglDwgAIPkG/mz/xqq90/i+g35/ZKzx8VrjIcheNlzQaH7h5XdNiEZkXlvQwJJkiO50FEQLnpqcxPjWFM8NnUa5WYQQCyGbzcDwPuq7juhtvwsYr1gUnTdzyYs6IE9ubgMM/Rb+bP3y+p4zXSNi+P4FYMSHwk74xKzJ27jCOVgzMFspwXQarVETf8ePITk0jEAiAM4ZIOIzJyUlYrgMqSQiFQli1ahUSfpscHGyI3N+fy/9sWeXz8tNNu4C5C/yk1wKo28aF4Op24pEfqJWi1TteQd/gBEAILNPC4tY0DIUil82C+vxwuUBrUwqKRDA/k0EgEMDo6CheeLkHB/fsxdRYFcesSM/lf7R3Kv09rwui1wEAgHb3OSZxZevFQWx9Z2rOXeSbQyISRNCvw7UtdHfvAyUCly6/COnGBLqf2YuBU32IhYPwPA/nxscwNjKCY6fHMTwxDeqVJ1CtOW/kJeNNRO6btLNfiOzSStZHVYLwk0oU6VQKy9vTWL+2E1zxIRQ0ILe24MYbb4BCZdQYgeM4YFYNQy+/gBWZKFIRs2+oaP7mQBn8vwJg2+oXWzX+Q09TQklVBivoqI/XobE1AwiBXU/sBC8UYKSacM2m6yE4w8Hnj8C2baRCMj68OIvVC2tIG7zcVi+Pkc+9sc8bXoF3V7wFQvxC00lnNKoQ3nQpCg5FLjuDwaEhTM7MIKqqqJ/LoaW5CRXbRsmyMZPNAp6L5QszuGnzelyWMJGOk04Ofg/7UazxDTv92g33m/EE0fiviY9cT2QBq2kj7u5tw859R+E6Jggh8Os6AoEAdL8Ow2/Ab/gRCAYxMjKKidN9SIoSurZch48v6oc6ug/wiBAm/4OoSJ9QflrIvSmAuANRFgtuIwZ5j+STiJt5K+4bXoz7f78Luk+D7XHIsgJFVeF5DJ7ngXMOz3WgahpkRcMSw4FWm8a+rIpPv3cz7kz2Qh08AG5zLmp8Oy3XPkceQel1AF/+wB3175D7vuPX3Tstn05rRhwTyY3Y9cIAPMeEpshwhQTGBRjnqNVMCCFAKAUBAeMcQgBJXYA5JsZLDKqm4ab1F6Ft8u8ImLPwOTWv4qj3POpe9P14H30sDwCksSlNIdHr4/H6L65ctnRNMFYnuxwglGKuMIeh4SEkGhLYdPVVmJdM4NjxHtQsE2/dsB6cc/T2nYRt27h46VJYto2T/QMIBoLY190Nn09DqrEJhWIB+WwWsaABs1xwTw6NHcnn8z/lnv1n6jeMpYTKD6/t6lz21a99RWpvz8AwdGx8ywZMT03ixZeO4s733461nWswk53BdZvejrpYFNFwBCf6+vCOLVtQH4+jLhbF5NQkNl99NTRVxopLlqOrswNtrc0Ih4K4bvO1uPbaa7B42TKazWWbh8+e7fI8b7cUCocTgUAgum7tWpRKZfz16afx551PwDAM9PT2wqxW0NbSgocf+S22brsHpmlCURRomor6eBw100Q+n4NEKXyaDyDAvb/6NaKRCFavXInHd/wJP/v5Vpw9O4JKtYpDzz2PsfFx+HR/JByJJmhm4ZKLBOe33Hrrrarm02BbFqamp7B02cV4Zt8z0FQVXevWY3xiAg2JBOqT83BuahoeEzh06CB+++ij8ASQTDXjwP5n8bs/PI49e/agVK2huS2Dhx58EP39p3G6vx+yrCDVmMLqjg6cOnmSQaJ/kYuF4tpEMuEvmQ4+/4WP4NTJPtx487tQNB2874MfQe/LR7F79x50XNYF07Jw//0PoK4ujmqlgkce3g4hBKiioWba+OXdW+G6Lggh6OnpweDQWVBK4VgWdN1AXSKFQrmGBak0gqGQPj09cxlpbms/GIvFuuZn2vHUk0/AcRykGlMIRSKwLAulYhHVagXhSAyceahVq1A0HwgAxhgAAUJeyTPbtsA5B2MMlFJEIlGUyiVYtSqi0SguWbkasXg9HMvEof3dCARDh0iyKX3Mc71LEjyHjjjwXNmHUzmGrhYNC+o1zFoSBFXRHJUxPEdQYiqWNyrghKJiCzDGYSgcBZNDgYdC1UXC4KjZHjTigUAgW+XY219DOsSwIWrjSJbiHI1DVZRjcrVUuMUIRu5UIu131CfNuo9Fyvjxszbe1q5gUZzA4gSawtEQcLB/iIERB1sWS6gxgmrtlUyoC0go2wKUcZhMQHgMmgI4XMCgBINzEoZmCD7eoWOqmoCmBrLqbHl7aS7/m1eDSGpItbwllW790qoW5crSyBl5craMibJA1McR0QiifoKsSTFny6jTPOiygCYBhAh4noChCpRtAkXiCCgCDgckCShZQM0liEdDCLUscF8cdf82MTbyo+zEyLMA+AVR7Pf7I5d2rL+tIRb6tGVZGZdxqVKzYNsuXNeD7XoQABRFRiigg0oE5aoN22XgXECVKXSfAsOnQACoWi4sy4HHGK+LBAeZEFt7Xzz0iFmrFd90GAFAMBReQGW6VtV8nZrmuzIgiUwjr9CU4iDspyhAwUBVwaRFIJiHlMbQpnpQBUeFS8hJBvJqyCua1plKqbTHdd3nOGOHq5XywL+dhheAaBQNLQtbNF2/UuPuO5tppeuyaDXaOc+BUR9EX16BOTaOGPMwWZVxwglhVInnav7YAU+Sd8zmsn8fOHVy7F95/EuA81XftlD3+42VIVW6KW24m9dlWGZN2pOPdk/h+ZzfGRbBU2VJ/4sLsjM3NXm8nJu2/5O6/zHA+UotWtEeC/tvjmj89pmZ2XLBEQ85rvvk3Pjw2P9S7/+qfwDouDM3tiVkPwAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAyNi0wMy0wN1QxMjozNzozNyswMDowMO2HUoYAAAAldEVYdGRhdGU6bW9kaWZ5ADIwMjYtMDItMTZUMTk6MjU6MTgrMDA6MDD0Kfd6AAAAKHRFWHRkYXRlOnRpbWVzdGFtcAAyMDI2LTA0LTAyVDExOjU2OjQ2KzAwOjAw7adSpgAAAABJRU5ErkJggg==">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="js/chart.min.js"></script>
 <style>
 /* Fonts already loaded in login CSS above */
 
@@ -3591,14 +4482,13 @@ body::after {
 .sub-tab.active { color:var(--accent);border-bottom-color:var(--accent) }
 .sub-panel { display:none }
 .sub-panel.active { display:block }
-.form-input option, select.form-input option { background:var(--surface);color:var(--text) }
+select.form-input option { background:var(--surface);color:var(--text) }
 .help-section.open .help-arrow { transform:rotate(180deg) }
 .help-body h4 { font-size:.78rem;font-weight:600;color:var(--text);margin:12px 0 6px }
 .help-body ul, .help-body ol { margin:6px 0;padding-left:18px }
 .help-body li { margin:4px 0 }
 .help-body p { margin:6px 0 }
 .help-body mark { background:rgba(255,89,0,.25);color:var(--text);padding:0 2px;border-radius:2px }
-@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ── Responsive ─────────────────────────────────────── */
 @media (max-width: 768px) {
@@ -3634,10 +4524,6 @@ body::after {
                 <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
                 <span class="tab-text"><?= __('tab_dashboard') ?></span>
             </button>
-            <button class="nav-tab" data-tab="vms">
-                <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-                <span class="tab-text"><?= __('tab_vms') ?></span>
-            </button>
             <button class="nav-tab" data-tab="security">
                 <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                 <span class="tab-text"><?= __('tab_security') ?></span>
@@ -3648,9 +4534,13 @@ body::after {
                 <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
                 <span class="tab-text">Network</span>
             </button>
+            <button class="nav-tab" data-tab="zfs">
+                <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                <span class="tab-text">ZFS</span>
+            </button>
             <button class="nav-tab" data-tab="system">
-                <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
-                <span class="tab-text">System</span>
+                <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                <span class="tab-text">Updates</span>
             </button>
             <button class="nav-tab" data-tab="help">
                 <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -3725,10 +4615,15 @@ body::after {
                     <div class="stat-value" id="sNginxSites">---</div>
                     <div class="stat-sub"><?= __('active_sites') ?></div>
                 </div>
-                <div class="stat-card" style="cursor:pointer" onclick="switchTab('updates')">
-                    <div class="stat-label"><?= $lang === 'en' ? 'Updates' : 'Updates' ?></div>
+                <div class="stat-card" style="cursor:pointer" onclick="switchTab('system')">
+                    <div class="stat-label">Updates</div>
                     <div class="stat-value" id="sUpdates">---</div>
                     <div class="stat-sub"><?= $lang === 'en' ? 'available' : 'verfügbar' ?></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Subscription</div>
+                    <div class="stat-value" id="sSub" style="font-size:1rem">---</div>
+                    <div class="stat-sub" id="sSubLevel">---</div>
                 </div>
             </div>
             <!-- Live Charts -->
@@ -3762,33 +4657,19 @@ body::after {
                     <div style="height:80px"><canvas id="chartDisk"></canvas></div>
                 </div>
             </div>
-        </div>
-
-        <!-- VMs & CTs -->
-        <div class="tab-panel" id="panel-vms">
-            <div class="section-head">
-                <div class="section-title">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-                    VMs & Container
-                    <span class="count" id="pveVmCount">0</span>
+            <!-- VM/CT Status Widget -->
+            <div style="background:var(--surface);border:1px solid var(--border-subtle);border-radius:var(--radius);padding:12px 16px;margin-top:10px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                    <div style="font-size:.72rem;font-weight:600;display:flex;align-items:center;gap:6px">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                        VMs & Container
+                        <span class="count" id="pveVmCount" style="font-size:.55rem">0</span>
+                    </div>
+                    <button class="btn btn-sm" onclick="loadDashboardVms()" style="font-size:.6rem;padding:2px 8px">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    </button>
                 </div>
-                <button class="btn btn-sm" onclick="loadPveVms()">Aktualisieren</button>
-            </div>
-            <div id="pveVmList"></div>
-        </div>
-
-        <!-- Clone Modal -->
-        <div class="modal-overlay" id="pveCloneModal">
-            <div class="modal" style="max-width:500px">
-                <div class="modal-head">
-                    <div class="modal-title" id="pveCloneTitle">Clone</div>
-                    <button class="modal-close" onclick="closeModal('pveCloneModal')">&times;</button>
-                </div>
-                <div class="modal-body" id="pveCloneBody"></div>
-                <div class="modal-foot">
-                    <button class="btn" onclick="closeModal('pveCloneModal')">Abbrechen</button>
-                    <button class="btn btn-accent" id="pveCloneBtn" onclick="pveDoClone()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Clone starten</button>
-                </div>
+                <div id="dashVmList" style="font-size:.75rem;color:var(--text3)"><?= __('loading') ?></div>
             </div>
         </div>
 
@@ -3831,7 +4712,7 @@ body::after {
                     </div>
                     <div style="display:flex;gap:6px">
                         <button class="btn btn-sm" onclick="showF2bConfig('jail.local')" title="jail.local bearbeiten">Config</button>
-                        <button class="btn btn-sm" onclick="loadF2b()">Aktualisieren</button>
+                        <button class="btn btn-sm" onclick="loadF2b()"><?= __('refresh') ?></button>
                     </div>
                 </div>
                 <div class="jail-grid" id="jailGrid"></div>
@@ -3842,7 +4723,7 @@ body::after {
                             Ban-Log
                         </div>
                     </div>
-                    <div class="log-viewer" id="f2bLog">Laden...</div>
+                    <div class="log-viewer" id="f2bLog"><?= __('loading') ?></div>
                 </div>
             </div>
 
@@ -3965,102 +4846,7 @@ body::after {
 
             <div class="site-grid" id="siteGrid"></div>
         </div>
-        <!-- System (grouped: ZFS, Updates) -->
-        <div class="tab-panel" id="panel-system">
-            <div class="sub-tabs" id="sysSubTabs">
-                <button class="sub-tab active" onclick="switchSubTab('system','zfs')"><?= __('tab_zfs') ?></button>
-                <button class="sub-tab" onclick="switchSubTab('system','updates')">Updates</button>
-            </div>
-            <div class="sub-panel active" id="sub-system-zfs">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-                <div style="display:flex;gap:2px;background:rgba(255,255,255,.02);border:1px solid var(--border-subtle);border-radius:8px;padding:2px">
-                    <button class="btn btn-sm zfs-sub active" data-zfstab="pools" onclick="zfsSwitchTab('pools',this)" style="border:none;border-radius:6px;font-size:.7rem;padding:5px 14px">Pools & Datasets</button>
-                    <button class="btn btn-sm zfs-sub" data-zfstab="snaps" onclick="zfsSwitchTab('snaps',this)" style="border:none;border-radius:6px;font-size:.7rem;padding:5px 14px">Snapshots <span class="count" id="zfsSnapCount" style="margin-left:4px">0</span></button>
-                    <button class="btn btn-sm zfs-sub" data-zfstab="auto" onclick="zfsSwitchTab('auto',this)" style="border:none;border-radius:6px;font-size:.7rem;padding:5px 14px">Auto-Snapshots <span id="zfsAutoStatus" style="margin-left:4px"></span></button>
-                </div>
-                <div style="display:flex;gap:6px">
-                    <button class="btn btn-sm btn-accent" onclick="zfsCreateSnapModal()">+ Snapshot</button>
-                    <button class="btn btn-sm" onclick="loadZfs()">Aktualisieren</button>
-                </div>
-            </div>
 
-            <!-- Info Box -->
-            <div style="background:var(--surface);border:1px solid var(--border-subtle);border-radius:var(--radius);margin-bottom:14px;overflow:hidden">
-                <div style="padding:10px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border-subtle);cursor:pointer" onclick="var g=document.getElementById('zfsGuide');g.style.display=g.style.display==='none'?'':'none'">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                    <span style="font-size:.75rem;font-weight:600;flex:1"><?= $lang === 'de' ? 'ZFS Snapshots & Auto-Backup' : 'ZFS Snapshots & Auto-Backup' ?></span>
-                    <span style="font-size:.6rem;color:var(--text3)">&#9660;</span>
-                </div>
-                <div id="zfsGuide" style="display:none;padding:14px;font-size:.72rem;color:var(--text2);line-height:1.8">
-                    <?php if ($lang === 'de'): ?>
-                    <strong style="color:var(--text)">Datensicherung direkt auf dem Server</strong><br>
-                    ZFS Snapshots sind sofortige, platzsparende Sicherungspunkte deiner Container und VMs. Sie ermöglichen sekundenschnelles Zurückrollen bei Problemen.
-
-                    <div style="display:flex;flex-direction:column;gap:4px;margin-top:8px">
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Auto-Snapshots</strong> — Automatisch alle 15 Min, stündlich, täglich, wöchentlich, monatlich</div>
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Rollback</strong> — Container auf einen früheren Zustand zurücksetzen</div>
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Clone</strong> — Neuen CT/VM aus einem Snapshot erstellen (Test, Migration)</div>
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Platzsparend</strong> — Nur geänderte Blöcke werden gespeichert (Copy-on-Write)</div>
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Keine Downtime</strong> — Snapshots sind sofort, ohne den CT/VM zu stoppen</div>
-                    </div>
-
-                    <div style="margin-top:10px;padding:8px 12px;background:rgba(255,89,0,.04);border:1px solid rgba(255,89,0,.1);border-radius:6px;font-size:.65rem">
-                        <strong style="color:var(--accent)">Empfehlung:</strong> Installiere <code style="padding:1px 4px;background:rgba(255,255,255,.04);border-radius:3px">zfs-auto-snapshot</code> im Auto-Snapshots Tab für automatische Sicherungen. Standard-Retention: 4 frequent, 24 hourly, 31 daily, 8 weekly, 12 monthly = ca. 1 Jahr Historie.
-                    </div>
-                    <?php else: ?>
-                    <strong style="color:var(--text)">Data protection directly on the server</strong><br>
-                    ZFS snapshots are instant, space-efficient backup points of your containers and VMs. Roll back in seconds when problems occur.
-
-                    <div style="display:flex;flex-direction:column;gap:4px;margin-top:8px">
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Auto-Snapshots</strong> — Automatically every 15 min, hourly, daily, weekly, monthly</div>
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Rollback</strong> — Restore container to a previous state</div>
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Clone</strong> — Create new CT/VM from a snapshot (testing, migration)</div>
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Space-efficient</strong> — Only changed blocks are stored (copy-on-write)</div>
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>No downtime</strong> — Snapshots are instant, no CT/VM stop required</div>
-                    </div>
-
-                    <div style="margin-top:10px;padding:8px 12px;background:rgba(255,89,0,.04);border:1px solid rgba(255,89,0,.1);border-radius:6px;font-size:.65rem">
-                        <strong style="color:var(--accent)">Recommendation:</strong> Install <code style="padding:1px 4px;background:rgba(255,255,255,.04);border-radius:3px">zfs-auto-snapshot</code> in the Auto-Snapshots tab for automatic backups. Default retention: 4 frequent, 24 hourly, 31 daily, 8 weekly, 12 monthly = ~1 year history.
-                    </div>
-                    <?php endif; ?>
-                </div>
-            </div>
-
-            <!-- Sub: Pools & Datasets -->
-            <div id="zfsTabPools">
-                <div id="zfsPools" style="margin-bottom:14px"></div>
-                <table class="data-table">
-                    <thead><tr><th>Dataset</th><th>Belegt</th><th>Verfügbar</th><th>Mountpoint</th><th style="width:150px">Auslastung</th></tr></thead>
-                    <tbody id="zfsDsBody"></tbody>
-                </table>
-            </div>
-
-            <!-- Sub: Snapshots -->
-            <div id="zfsTabSnaps" style="display:none">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-                    <div style="font-size:.72rem;font-weight:600">Snapshots</div>
-                    <div style="display:flex;gap:6px;align-items:center">
-                        <select id="zfsSnapSort" onchange="zfsRenderSnaps()" style="background:var(--surface-solid);border:1px solid var(--border-subtle);border-radius:4px;padding:3px 8px;font-size:.65rem;color:var(--text)">
-                            <option value="date-desc">Neueste zuerst</option>
-                            <option value="date-asc">Älteste zuerst</option>
-                            <option value="size-desc">Größte zuerst</option>
-                            <option value="name-asc">Name A-Z</option>
-                        </select>
-                        <select id="zfsSnapFilter" onchange="zfsRenderSnaps()" style="background:var(--surface-solid);border:1px solid var(--border-subtle);border-radius:4px;padding:3px 8px;font-size:.65rem;color:var(--text)">
-                            <option value="">Alle Datasets</option>
-                        </select>
-                    </div>
-                </div>
-                <div id="zfsSnapBody"></div>
-            </div>
-
-            <!-- Sub: Auto-Snapshots -->
-            <div id="zfsTabAuto" style="display:none">
-                <div id="zfsAutoBody"></div>
-            </div>
-        </div>
-
-            </div><!-- /sub-network-nginx -->
             <div class="sub-panel" id="sub-network-wireguard">
             <div class="section-head">
                 <div class="section-title">
@@ -4070,7 +4856,8 @@ body::after {
                 </div>
                 <div style="display:flex;gap:6px">
                     <button class="btn btn-sm btn-green" onclick="wgWizardOpen()">+ Neuer Tunnel</button>
-                    <button class="btn btn-sm" onclick="loadWg()">Aktualisieren</button>
+                    <button class="btn btn-sm" onclick="wgImportOpen()"><?= $lang === 'de' ? 'Config importieren' : 'Import Config' ?></button>
+                    <button class="btn btn-sm" onclick="loadWg()"><?= $lang === 'de' ? 'Aktualisieren' : 'Refresh' ?></button>
                 </div>
             </div>
             <!-- Info Box -->
@@ -4143,13 +4930,113 @@ body::after {
                 <div style="height:100px"><canvas id="wgCanvas"></canvas></div>
             </div>
 
+            <div id="wgRestartBanner" style="display:none;background:rgba(255,193,7,.06);border:1px solid rgba(255,193,7,.2);border-radius:var(--radius);padding:10px 14px;margin-bottom:12px">
+                <div style="display:flex;align-items:center;gap:10px">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--yellow)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    <span style="flex:1;font-size:.76rem" id="wgRestartMsg"></span>
+                    <button class="btn btn-sm" id="wgRestartBtn" style="font-size:.7rem">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                        Restart
+                    </button>
+                    <button class="btn btn-sm" onclick="document.getElementById('wgRestartBanner').style.display='none'" style="padding:2px 6px;font-size:.6rem">&times;</button>
+                </div>
+            </div>
             <div id="wgGrid" class="jail-grid"></div>
             </div><!-- /sub-network-wireguard -->
         </div><!-- /panel-network -->
 
-        <!-- Updates sub-panel inside panel-system -->
-            </div><!-- /sub-system-zfs -->
-            <div class="sub-panel" id="sub-system-updates">
+        <!-- ZFS (eigener Tab) -->
+        <div class="tab-panel" id="panel-zfs">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                <div style="display:flex;gap:2px;background:rgba(255,255,255,.02);border:1px solid var(--border-subtle);border-radius:8px;padding:2px">
+                    <button class="btn btn-sm zfs-sub active" data-zfstab="pools" onclick="zfsSwitchTab('pools',this)" style="border:none;border-radius:6px;font-size:.7rem;padding:5px 14px">Pools & Datasets</button>
+                    <button class="btn btn-sm zfs-sub" data-zfstab="snaps" onclick="zfsSwitchTab('snaps',this)" style="border:none;border-radius:6px;font-size:.7rem;padding:5px 14px">Snapshots <span class="count" id="zfsSnapCount" style="margin-left:4px">0</span></button>
+                    <button class="btn btn-sm zfs-sub" data-zfstab="auto" onclick="zfsSwitchTab('auto',this)" style="border:none;border-radius:6px;font-size:.7rem;padding:5px 14px">Auto-Snapshots <span id="zfsAutoStatus" style="margin-left:4px"></span></button>
+                </div>
+                <div style="display:flex;gap:6px">
+                    <button class="btn btn-sm btn-accent" onclick="zfsCreateSnapModal()">+ Snapshot</button>
+                    <button class="btn btn-sm" onclick="loadZfs()"><?= __('refresh') ?></button>
+                </div>
+            </div>
+
+            <!-- Info Box -->
+            <div style="background:var(--surface);border:1px solid var(--border-subtle);border-radius:var(--radius);margin-bottom:14px;overflow:hidden">
+                <div style="padding:10px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border-subtle);cursor:pointer" onclick="var g=document.getElementById('zfsGuide');g.style.display=g.style.display==='none'?'':'none'">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                    <span style="font-size:.75rem;font-weight:600;flex:1">ZFS Snapshots &amp; Auto-Backup</span>
+                    <span style="font-size:.6rem;color:var(--text3)">&#9660;</span>
+                </div>
+                <div id="zfsGuide" style="display:none;padding:14px;font-size:.72rem;color:var(--text2);line-height:1.8">
+                    <?php if ($lang === 'de'): ?>
+                    <strong style="color:var(--text)">Datensicherung direkt auf dem Server</strong><br>
+                    ZFS Snapshots sind sofortige, platzsparende Sicherungspunkte deiner Container und VMs. Sie ermöglichen sekundenschnelles Zurückrollen bei Problemen.
+
+                    <div style="display:flex;flex-direction:column;gap:4px;margin-top:8px">
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Auto-Snapshots</strong> — Automatisch alle 15 Min, stündlich, täglich, wöchentlich, monatlich</div>
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Rollback</strong> — Container auf einen früheren Zustand zurücksetzen</div>
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Clone</strong> — Neuen CT/VM aus einem Snapshot erstellen (Test, Migration)</div>
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Platzsparend</strong> — Nur geänderte Blöcke werden gespeichert (Copy-on-Write)</div>
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Keine Downtime</strong> — Snapshots sind sofort, ohne den CT/VM zu stoppen</div>
+                    </div>
+
+                    <div style="margin-top:10px;padding:8px 12px;background:rgba(255,89,0,.04);border:1px solid rgba(255,89,0,.1);border-radius:6px;font-size:.65rem">
+                        <strong style="color:var(--accent)">Empfehlung:</strong> Installiere <code style="padding:1px 4px;background:rgba(255,255,255,.04);border-radius:3px">zfs-auto-snapshot</code> im Auto-Snapshots Tab für automatische Sicherungen. Standard-Retention: 4 frequent, 24 hourly, 31 daily, 8 weekly, 12 monthly = ca. 1 Jahr Historie.
+                    </div>
+                    <?php else: ?>
+                    <strong style="color:var(--text)">Data protection directly on the server</strong><br>
+                    ZFS snapshots are instant, space-efficient backup points of your containers and VMs. Roll back in seconds when problems occur.
+
+                    <div style="display:flex;flex-direction:column;gap:4px;margin-top:8px">
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Auto-Snapshots</strong> — Automatically every 15 min, hourly, daily, weekly, monthly</div>
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Rollback</strong> — Restore container to a previous state</div>
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Clone</strong> — Create new CT/VM from a snapshot (testing, migration)</div>
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Space-efficient</strong> — Only changed blocks are stored (copy-on-write)</div>
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>No downtime</strong> — Snapshots are instant, no CT/VM stop required</div>
+                    </div>
+
+                    <div style="margin-top:10px;padding:8px 12px;background:rgba(255,89,0,.04);border:1px solid rgba(255,89,0,.1);border-radius:6px;font-size:.65rem">
+                        <strong style="color:var(--accent)">Recommendation:</strong> Install <code style="padding:1px 4px;background:rgba(255,255,255,.04);border-radius:3px">zfs-auto-snapshot</code> in the Auto-Snapshots tab for automatic backups. Default retention: 4 frequent, 24 hourly, 31 daily, 8 weekly, 12 monthly = ~1 year history.
+                    </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <!-- Sub: Pools & Datasets -->
+            <div id="zfsTabPools">
+                <div id="zfsPools" style="margin-bottom:14px"></div>
+                <table class="data-table">
+                    <thead><tr><th><?= __('dataset') ?></th><th><?= __('used') ?></th><th><?= __('available') ?></th><th><?= __('mountpoint') ?></th><th style="width:150px"><?= __('utilization') ?></th></tr></thead>
+                    <tbody id="zfsDsBody"></tbody>
+                </table>
+            </div>
+
+            <!-- Sub: Snapshots -->
+            <div id="zfsTabSnaps" style="display:none">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                    <div style="font-size:.72rem;font-weight:600">Snapshots</div>
+                    <div style="display:flex;gap:6px;align-items:center">
+                        <select id="zfsSnapSort" onchange="zfsRenderSnaps()" style="background:var(--surface-solid);border:1px solid var(--border-subtle);border-radius:4px;padding:3px 8px;font-size:.65rem;color:var(--text)">
+                            <option value="date-desc">Neueste zuerst</option>
+                            <option value="date-asc">Älteste zuerst</option>
+                            <option value="size-desc">Größte zuerst</option>
+                            <option value="name-asc">Name A-Z</option>
+                        </select>
+                        <select id="zfsSnapFilter" onchange="zfsRenderSnaps()" style="background:var(--surface-solid);border:1px solid var(--border-subtle);border-radius:4px;padding:3px 8px;font-size:.65rem;color:var(--text)">
+                            <option value=""><?= __('all_datasets') ?></option>
+                        </select>
+                    </div>
+                </div>
+                <div id="zfsSnapBody"></div>
+            </div>
+
+            <!-- Sub: Auto-Snapshots -->
+            <div id="zfsTabAuto" style="display:none">
+                <div id="zfsAutoBody"></div>
+            </div>
+        </div>
+
+        <!-- System (Updates) -->
+        <div class="tab-panel" id="panel-system">
             <div class="section-head">
                 <div class="section-title">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
@@ -4208,14 +5095,13 @@ body::after {
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
                     <span style="font-size:.78rem;font-weight:600">Repositories</span>
                     <span id="repoSubBadge" style="display:none;font-size:.56rem;padding:2px 6px;border-radius:8px;margin-left:4px"></span>
-                    <button class="btn btn-sm btn-green" onclick="repoAddNoSub()" id="btnRepoAddNoSub" style="display:none;margin-left:auto"><?= $lang === 'en' ? '+ Add No-Subscription' : '+ No-Subscription hinzufügen' ?></button>
                 </div>
-                <div id="repoWarning" style="display:none;padding:10px 16px;background:rgba(255,193,7,.05);border-bottom:1px solid var(--border-subtle);font-size:.72rem;display:flex;align-items:center;gap:8px">
+                <div id="repoWarning" style="display:none;padding:10px 16px;background:rgba(255,193,7,.05);border-bottom:1px solid var(--border-subtle);font-size:.72rem;align-items:center;gap:8px">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--yellow)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                     <span id="repoWarningText"></span>
                 </div>
                 <div id="repoList" style="padding:0;font-size:.72rem">
-                    <div style="color:var(--text3);padding:12px 16px"><span class="spinner-small"></span> Laden...</div>
+                    <div style="color:var(--text3);padding:12px 16px"><span class="spinner-small"></span> <?= __('loading') ?></div>
                 </div>
             </div>
 
@@ -4228,7 +5114,7 @@ body::after {
                         <span style="font-size:.78rem;font-weight:600">FloppyOps Lite</span>
                     </div>
                     <div id="appUpdateInfo" style="font-size:.74rem">
-                        <div style="color:var(--text3);display:flex;align-items:center;gap:6px"><div class="spinner-small"></div> Prüfe...</div>
+                        <div style="color:var(--text3);display:flex;align-items:center;gap:6px"><div class="spinner-small"></div> <?= __('checking') ?></div>
                     </div>
                     <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border-subtle)">
                         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.72rem">
@@ -4251,7 +5137,7 @@ body::after {
                 <div style="flex:1;min-width:300px;background:var(--surface);border:1px solid var(--border-subtle);border-radius:var(--radius);padding:14px 16px">
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/></svg>
-                        <span style="font-size:.78rem;font-weight:600"><?= $lang === 'en' ? 'System Auto-Update' : 'System Auto-Update' ?></span>
+                        <span style="font-size:.78rem;font-weight:600"><?= __('system_auto_update') ?></span>
                         <span id="autoUpdateStatus" style="font-size:.58rem;color:var(--text3);margin-left:auto"></span>
                     </div>
                     <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:.76rem;padding:4px 0">
@@ -4271,7 +5157,7 @@ body::after {
                     </div>
                 </div>
             </div>
-            </div><!-- /sub-system-updates -->
+            </div>
         </div><!-- /panel-system -->
 
         <!-- Help -->
@@ -4375,6 +5261,12 @@ body::after {
                     <p>Node- und Cluster-Regeln werden gemeinsam angezeigt. Neue Regeln können mit Action (ACCEPT/DROP/REJECT), Richtung, Port, Source und Kommentar erstellt werden.</p>
                     <h4>Standard-Regeln:</h4>
                     <p>Ein vordefinierter Satz empfohlener Regeln: SSH, PVE WebUI und SPICE erlauben, riskante Dienste blockieren.</p>
+                    <h4>IPv6 & NDP Proxy:</h4>
+                    <ul>
+                        <li>Prüft ob IPv4/IPv6-Forwarding und NDP Proxy aktiviert sind</li>
+                        <li><strong>1-Klick Fix</strong> — aktiviert fehlende Einstellungen permanent (sysctl.conf)</li>
+                        <li>NDP Proxy wird benötigt wenn IPv6-Adressen über verschiedene Bridges geroutet werden</li>
+                    </ul>
                 '],
                 ['id' => 'h-fail2ban', 'icon' => '🔒', 'title' => 'Fail2ban', 'content' => '
                     <p>Überwacht und verwaltet Fail2ban Jails — automatischer Schutz gegen Brute-Force-Angriffe.</p>
@@ -4392,11 +5284,20 @@ body::after {
                     <p>Verwaltet Nginx als Reverse Proxy für interne Container und VMs.</p>
                     <h4>Neue Site anlegen:</h4>
                     <ol>
-                        <li>Domain eingeben (z.B. app.example.com)</li>
-                        <li>Ziel-Adresse angeben (z.B. http://10.10.10.100:80)</li>
-                        <li>"Erstellen" — Nginx-Config wird automatisch generiert</li>
-                        <li>SSL per Let\'s Encrypt wird automatisch eingerichtet (Certbot)</li>
+                        <li>Domain und E-Mail eingeben</li>
+                        <li>Ziel wählen — CT/VM aus der Liste (IPs werden automatisch erkannt) oder manuell eingeben</li>
+                        <li>SSL-Challenge wählen: <strong>HTTP-01</strong> (Standard, Port 80) oder <strong>DNS-01</strong> (Cloudflare, Hetzner DNS, IPv64)</li>
+                        <li>"Erstellen" — Fortschritts-Modal zeigt jeden Schritt live an</li>
                     </ol>
+                    <h4>DNS-01 Challenge:</h4>
+                    <p>Wenn Port 80 nicht verfügbar ist (z.B. hinter Cloudflare Proxy), kann SSL über DNS-01 Challenge beantragt werden. Unterstützte Provider:</p>
+                    <ul>
+                        <li><strong>Cloudflare</strong> — API Token eingeben (certbot-dns-cloudflare)</li>
+                        <li><strong>Hetzner DNS</strong> — API Token eingeben (certbot-dns-hetzner)</li>
+                        <li><strong>IPv64.net</strong> — Account API Key eingeben (certbot manual hooks)</li>
+                    </ul>
+                    <h4>SSL-Erneuerung:</h4>
+                    <p>Per "Renew" Button kann das Zertifikat jeder Site erneuert werden — mit Live-Fortschrittsanzeige. Beim Löschen einer Site wird das zugehörige Zertifikat automatisch mit entfernt.</p>
                     <h4>SSL Health Check:</h4>
                     <p>Der SSL Health Check prüft alle konfigurierten Nginx-Sites automatisch auf häufige Probleme:</p>
                     <ul>
@@ -4437,15 +5338,16 @@ body::after {
                     <ul>
                         <li><strong>Erstellen</strong> — Manueller Snapshot eines Datasets</li>
                         <li><strong>Rollback</strong> — Dataset auf einen früheren Snapshot zurücksetzen</li>
-                        <li><strong>Clone</strong> — Neues Dataset aus einem Snapshot erstellen</li>
+                        <li><strong>Clone</strong> — Neuen CT aus einem Snapshot erstellen (CPU, RAM, Swap, Netzwerk IPv4/IPv6 konfigurierbar)</li>
                         <li><strong>Löschen</strong> — Alte Snapshots entfernen</li>
                     </ul>
                     <h4>Auto-Snapshots:</h4>
-                    <p>Automatische Snapshots mit konfigurierbarer Retention (stündlich, täglich, wöchentlich). Wird über Cron-Jobs gesteuert.</p>
+                    <p>Automatische Snapshots mit konfigurierbarer Retention (alle 15 Min, stündlich, täglich, wöchentlich, monatlich). Der Zeitraum wird live berechnet wenn die Retention geändert wird.</p>
                     <h4>Hinweise:</h4>
                     <ul>
                         <li>Rollback löscht alle neueren Snapshots!</li>
                         <li>ZFS Kompression (lz4) spart Speicherplatz ohne Performance-Einbußen</li>
+                        <li>Snapshots werden nach CT/VM gruppiert angezeigt, die 5 neuesten sind direkt sichtbar</li>
                     </ul>
                 '],
                 ['id' => 'h-wireguard', 'icon' => '🔐', 'title' => 'WireGuard VPN', 'content' => '
@@ -4586,6 +5488,12 @@ body::after {
                     <p>Node and cluster rules are shown together. New rules can be created with action (ACCEPT/DROP/REJECT), direction, port, source and comment.</p>
                     <h4>Default Rules:</h4>
                     <p>A predefined set of recommended rules: Allow SSH, PVE WebUI and SPICE, block risky services.</p>
+                    <h4>IPv6 & NDP Proxy:</h4>
+                    <ul>
+                        <li>Checks if IPv4/IPv6 forwarding and NDP proxy are enabled</li>
+                        <li><strong>1-click fix</strong> — enables missing settings permanently (sysctl.conf)</li>
+                        <li>NDP proxy is required when routing IPv6 addresses across different bridges</li>
+                    </ul>
                 '],
                 ['id' => 'h-fail2ban', 'icon' => '🔒', 'title' => 'Fail2ban', 'content' => '
                     <p>Monitors and manages Fail2ban jails — automatic protection against brute-force attacks.</p>
@@ -4603,11 +5511,20 @@ body::after {
                     <p>Manages Nginx as a reverse proxy for internal containers and VMs.</p>
                     <h4>Create New Site:</h4>
                     <ol>
-                        <li>Enter domain (e.g. app.example.com)</li>
-                        <li>Set target address (e.g. http://10.10.10.100:80)</li>
-                        <li>"Create" — Nginx config is automatically generated</li>
-                        <li>SSL via Let\'s Encrypt is set up automatically (Certbot)</li>
+                        <li>Enter domain and email</li>
+                        <li>Select target — pick CT/VM from the list (IPs auto-detected) or enter manually</li>
+                        <li>Choose SSL challenge: <strong>HTTP-01</strong> (default, port 80) or <strong>DNS-01</strong> (Cloudflare, Hetzner DNS, IPv64)</li>
+                        <li>"Create" — progress modal shows each step live</li>
                     </ol>
+                    <h4>DNS-01 Challenge:</h4>
+                    <p>When port 80 is not available (e.g. behind Cloudflare Proxy), SSL can be requested via DNS-01 challenge. Supported providers:</p>
+                    <ul>
+                        <li><strong>Cloudflare</strong> — enter API Token (certbot-dns-cloudflare)</li>
+                        <li><strong>Hetzner DNS</strong> — enter API Token (certbot-dns-hetzner)</li>
+                        <li><strong>IPv64.net</strong> — enter Account API Key (certbot manual hooks)</li>
+                    </ul>
+                    <h4>SSL Renewal:</h4>
+                    <p>The "Renew" button per site triggers certificate renewal with a live progress log. When deleting a site, the associated certificate is automatically removed.</p>
                     <h4>SSL Health Check:</h4>
                     <p>The SSL Health Check automatically inspects all configured Nginx sites for common issues:</p>
                     <ul>
@@ -4648,15 +5565,16 @@ body::after {
                     <ul>
                         <li><strong>Create</strong> — Manual snapshot of a dataset</li>
                         <li><strong>Rollback</strong> — Revert dataset to a previous snapshot</li>
-                        <li><strong>Clone</strong> — Create new dataset from a snapshot</li>
+                        <li><strong>Clone</strong> — Create new CT from a snapshot (CPU, RAM, Swap, IPv4/IPv6 network configurable)</li>
                         <li><strong>Delete</strong> — Remove old snapshots</li>
                     </ul>
                     <h4>Auto-Snapshots:</h4>
-                    <p>Automatic snapshots with configurable retention (hourly, daily, weekly). Managed via cron jobs.</p>
+                    <p>Automatic snapshots with configurable retention (every 15 min, hourly, daily, weekly, monthly). The coverage period updates live when retention is changed.</p>
                     <h4>Notes:</h4>
                     <ul>
                         <li>Rollback deletes all newer snapshots!</li>
                         <li>ZFS compression (lz4) saves storage without performance penalty</li>
+                        <li>Snapshots are grouped by CT/VM, most recent 5 shown directly</li>
                     </ul>
                 '],
                 ['id' => 'h-wireguard', 'icon' => '🔐', 'title' => 'WireGuard VPN', 'content' => '
@@ -4754,7 +5672,6 @@ body::after {
     </div>
 </div>
 
-<!-- ─ WireGuard Config Modal ──────────────────────────── -->
 <!-- ─ Security: Default Rules Preview ───────────────── -->
 <div class="modal-overlay" id="secDefaultsModal">
     <div class="modal" style="max-width:520px">
@@ -4955,8 +5872,9 @@ foreach ($defaultRules as $i => $r):
             </div>
         </div>
         <div class="modal-foot">
-            <button class="btn" onclick="closeModal('wgConfigModal')">Abbrechen</button>
-            <button class="btn btn-accent" onclick="saveWgConfig()">Speichern</button>
+            <button class="btn" onclick="closeModal('wgConfigModal')"><?= $lang === 'de' ? 'Schließen' : 'Close' ?></button>
+            <button class="btn" id="wgConfigEditBtn" onclick="wgConfigMakeEditable()" style="display:none"><?= $lang === 'de' ? 'Gesamte Config bearbeiten' : 'Edit full config' ?></button>
+            <button class="btn btn-accent" id="wgConfigSaveBtn" onclick="saveWgConfig()" style="display:none"><?= $lang === 'de' ? 'Speichern' : 'Save' ?></button>
         </div>
     </div>
 </div>
@@ -4973,6 +5891,132 @@ foreach ($defaultRules as $i => $r):
     </div>
 </div>
 
+<!-- ─ WireGuard Add Peer Modal ────────────────────────── -->
+<div class="modal-overlay" id="wgAddPeerModal">
+    <div class="modal" style="max-width:640px">
+        <div class="modal-head">
+            <div class="modal-title" id="wgAddPeerTitle"><?= $lang === 'de' ? 'Peer hinzufügen' : 'Add Peer' ?></div>
+            <button class="modal-close" onclick="closeModal('wgAddPeerModal')">&times;</button>
+        </div>
+        <div class="modal-body" id="wgAddPeerBody"></div>
+        <div class="modal-foot" id="wgAddPeerFoot"></div>
+    </div>
+</div>
+
+<!-- ─ WireGuard Edit Interface Modal ──────────────────── -->
+<div class="modal-overlay" id="wgEditIfaceModal">
+    <div class="modal" style="max-width:520px">
+        <div class="modal-head">
+            <div class="modal-title" id="wgEditIfaceTitle">Interface</div>
+            <button class="modal-close" onclick="closeModal('wgEditIfaceModal')">&times;</button>
+        </div>
+        <div class="modal-body" id="wgEditIfaceBody"></div>
+        <div class="modal-foot">
+            <button class="btn" onclick="closeModal('wgEditIfaceModal')"><?= $lang === 'de' ? 'Abbrechen' : 'Cancel' ?></button>
+            <button class="btn btn-accent" id="wgEditIfaceSaveBtn" onclick="wgEditIfaceSave()"><?= $lang === 'de' ? 'Speichern' : 'Save' ?></button>
+        </div>
+    </div>
+</div>
+
+<!-- ─ WireGuard Logs Modal ────────────────────────────── -->
+<div class="modal-overlay" id="wgLogsModal">
+    <div class="modal" style="max-width:720px">
+        <div class="modal-head">
+            <div class="modal-title" id="wgLogsTitle">WireGuard Logs</div>
+            <button class="modal-close" onclick="closeModal('wgLogsModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div style="display:flex;gap:6px;margin-bottom:10px">
+                <button class="btn btn-sm" id="wgLogsRefreshBtn" onclick="wgRefreshLogs()" style="font-size:.65rem"><?= __('refresh') ?></button>
+                <select id="wgLogsLines" onchange="wgRefreshLogs()" style="background:var(--surface-solid);border:1px solid var(--border-subtle);border-radius:4px;padding:3px 8px;font-size:.65rem;color:var(--text)">
+                    <option value="30">30 Zeilen</option>
+                    <option value="50" selected>50 Zeilen</option>
+                    <option value="100">100 Zeilen</option>
+                    <option value="200">200 Zeilen</option>
+                </select>
+            </div>
+            <pre id="wgLogsContent" style="background:rgba(0,0,0,.3);border:1px solid var(--border-subtle);border-radius:8px;padding:12px;font-family:var(--mono);font-size:.65rem;line-height:1.6;overflow:auto;max-height:400px;color:var(--text2);margin:0;white-space:pre-wrap"></pre>
+        </div>
+        <div class="modal-foot">
+            <button class="btn" onclick="closeModal('wgLogsModal')"><?= $lang === 'de' ? 'Schließen' : 'Close' ?></button>
+        </div>
+    </div>
+</div>
+
+<!-- ─ WireGuard Edit Peer Modal ───────────────────────── -->
+<div class="modal-overlay" id="wgEditPeerModal">
+    <div class="modal" style="max-width:520px">
+        <div class="modal-head">
+            <div class="modal-title" id="wgEditPeerTitle">Peer bearbeiten</div>
+            <button class="modal-close" onclick="closeModal('wgEditPeerModal')">&times;</button>
+        </div>
+        <div class="modal-body" id="wgEditPeerBody"></div>
+        <div class="modal-foot">
+            <button class="btn" onclick="closeModal('wgEditPeerModal')"><?= $lang === 'de' ? 'Abbrechen' : 'Cancel' ?></button>
+            <button class="btn btn-accent" id="wgEditPeerSaveBtn" onclick="wgEditPeerSave()"><?= $lang === 'de' ? 'Speichern' : 'Save' ?></button>
+        </div>
+    </div>
+</div>
+
+<!-- ─ WireGuard Import Config Modal ──────────────────── -->
+<div class="modal-overlay" id="wgImportModal">
+    <div class="modal" style="max-width:560px">
+        <div class="modal-head">
+            <div class="modal-title"><?= $lang === 'de' ? 'WireGuard Config importieren' : 'Import WireGuard Config' ?></div>
+            <button class="modal-close" onclick="closeModal('wgImportModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div style="background:rgba(64,196,255,.04);border:1px solid rgba(64,196,255,.1);border-radius:6px;padding:8px 12px;margin-bottom:14px;font-size:.68rem;color:var(--text2);line-height:1.5">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2" style="margin-right:4px;vertical-align:middle"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                <?= $lang === 'de'
+                    ? 'Config-Datei (.conf) eines anderen WireGuard-Servers einfügen oder hochladen. Die Datei wird unter /etc/wireguard/ gespeichert.'
+                    : 'Paste or upload a config file (.conf) from another WireGuard server. It will be saved to /etc/wireguard/.' ?>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label"><?= $lang === 'de' ? 'Interface-Name' : 'Interface name' ?></label>
+                    <input class="form-input" id="wgImportIface" placeholder="wg0">
+                </div>
+                <div class="form-group" style="display:flex;align-items:flex-end">
+                    <label class="btn btn-sm" style="cursor:pointer;margin-bottom:0">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        <?= $lang === 'de' ? '.conf hochladen' : 'Upload .conf' ?>
+                        <input type="file" accept=".conf,.txt" id="wgImportFile" onchange="wgImportFileLoad(this)" style="display:none">
+                    </label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label"><?= $lang === 'de' ? 'Config-Inhalt' : 'Config content' ?></label>
+                <textarea class="form-textarea" id="wgImportContent" style="min-height:200px;font-family:var(--mono);font-size:.7rem" placeholder="[Interface]
+PrivateKey = ...
+Address = 10.10.30.2/24
+
+[Peer]
+PublicKey = ...
+Endpoint = ...
+AllowedIPs = ..."></textarea>
+            </div>
+            <div class="form-row">
+                <label class="form-check">
+                    <input type="checkbox" id="wgImportAutoStart" checked>
+                    <?= $lang === 'de' ? 'Tunnel starten + Autostart' : 'Start tunnel + enable at boot' ?>
+                </label>
+                <label class="form-check">
+                    <input type="checkbox" id="wgImportAddFw">
+                    <?= $lang === 'de' ? 'ListenPort in Firewall freigeben' : 'Open ListenPort in firewall' ?>
+                </label>
+            </div>
+        </div>
+        <div class="modal-foot">
+            <button class="btn" onclick="closeModal('wgImportModal')"><?= $lang === 'de' ? 'Abbrechen' : 'Cancel' ?></button>
+            <button class="btn btn-accent" onclick="wgImportSave()" id="wgImportBtn">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <?= $lang === 'de' ? 'Importieren' : 'Import' ?>
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- ─ Add Site Modal ──────────────────────────────────── -->
 <div class="modal-overlay" id="addSiteModal">
     <div class="modal">
@@ -4986,28 +6030,112 @@ foreach ($defaultRules as $i => $r):
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2" style="margin-right:4px;vertical-align:middle"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
                 <?= $lang === 'de' ? 'Erstellt einen Nginx Reverse Proxy. Der DNS A-Record der Domain muss auf die IP dieses Servers zeigen.' : 'Creates an Nginx reverse proxy. The domain DNS A record must point to this server\'s IP.' ?>
             </div>
-            <div class="form-row">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
                 <div class="form-group">
                     <label class="form-label"><?= __('domains') ?></label>
                     <input class="form-input" id="newDomain" placeholder="example.com, www.example.com">
                     <div class="form-hint"><?= __('multi_domain_hint') ?></div>
                 </div>
                 <div class="form-group">
-                    <label class="form-label"><?= __('target_ip') ?></label>
-                    <input class="form-input" id="newTarget" placeholder="http://10.10.10.100:80">
+                    <label class="form-label">E-Mail (SSL)</label>
+                    <input class="form-input" id="newEmail" type="email" placeholder="admin@example.com">
+                    <div class="form-hint"><?= $lang === 'de' ? 'Für Let\'s Encrypt Benachrichtigungen' : 'For Let\'s Encrypt notifications' ?></div>
                 </div>
             </div>
-            <div class="form-group">
-                <label class="form-check">
-                    <input type="checkbox" id="newSsl">
-                    <?= __('enable_ssl') ?>
-                </label>
-                <div class="form-hint"><?= __('dns_hint') ?></div>
+            <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr 80px;gap:8px">
+                <div class="form-group">
+                    <label class="form-label"><?= $lang === 'de' ? 'Ziel (CT/VM)' : 'Target (CT/VM)' ?></label>
+                    <select class="form-input" id="newTargetSelect" onchange="onTargetSelect()">
+                        <option value=""><?= $lang === 'de' ? 'Laden...' : 'Loading...' ?></option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label"><?= __('target_ip') ?></label>
+                    <input class="form-input" id="newTargetIp" placeholder="10.10.10.100">
+                </div>
+                <div class="form-group">
+                    <label class="form-label"><?= __('target_port') ?></label>
+                    <input class="form-input" id="newTargetPort" placeholder="80" value="80">
+                </div>
             </div>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+                <label class="form-check"><input type="checkbox" id="newSsl" checked onchange="toggleSslChallenge()"> <?= __('enable_ssl') ?></label>
+                <label class="form-check"><input type="checkbox" id="newForceSsl" checked> <?= __('force_ssl') ?></label>
+                <label class="form-check"><input type="checkbox" id="newWs"> <?= __('enable_ws') ?></label>
+            </div>
+            <!-- SSL Challenge Type -->
+            <div id="sslChallengeRow" style="margin-top:8px;display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+                <div style="flex:0 0 auto">
+                    <label style="font-size:.7rem;color:var(--text2);display:block;margin-bottom:3px"><?= $lang === 'de' ? 'Challenge' : 'Challenge' ?></label>
+                    <select class="form-input" id="newChallengeType" onchange="toggleDnsFields()" style="width:110px;padding:4px 6px;font-size:.7rem">
+                        <option value="http">HTTP-01</option>
+                        <option value="dns">DNS-01</option>
+                    </select>
+                </div>
+                <div id="dnsProviderWrap" style="display:none;flex:0 0 auto">
+                    <label style="font-size:.7rem;color:var(--text2);display:block;margin-bottom:3px">Provider</label>
+                    <select class="form-input" id="newDnsProvider" onchange="toggleDnsFields()" style="width:110px;padding:4px 6px;font-size:.7rem">
+                        <option value="cloudflare">Cloudflare</option>
+                        <option value="hetzner">Hetzner</option>
+                        <option value="ipv64">IPv64.net</option>
+                    </select>
+                </div>
+                <div id="dnsCfTokenWrap" style="display:none;flex:1;min-width:140px">
+                    <label style="font-size:.7rem;color:var(--text2);display:block;margin-bottom:3px">API Token</label>
+                    <input class="form-input" id="newCfToken" type="password" placeholder="Cloudflare API Token" style="font-size:.7rem;padding:4px 6px">
+                </div>
+                <div id="dnsHetznerWrap" style="display:none;flex:1;min-width:140px">
+                    <label style="font-size:.7rem;color:var(--text2);display:block;margin-bottom:3px">API Token</label>
+                    <input class="form-input" id="newHetznerToken" type="password" placeholder="Hetzner DNS API Token" style="font-size:.7rem;padding:4px 6px">
+                </div>
+                <div id="dnsIpv64Wrap" style="display:none;flex:1;min-width:140px">
+                    <label style="font-size:.7rem;color:var(--text2);display:block;margin-bottom:3px">API Key</label>
+                    <input class="form-input" id="newIpv64Key" type="password" placeholder="IPv64 Account API Key" style="font-size:.7rem;padding:4px 6px">
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+                <label style="font-size:.7rem;color:var(--text2);white-space:nowrap"><?= __('max_upload') ?></label>
+                <select class="form-input" id="newMaxUpload" style="width:90px;padding:4px 6px;font-size:.7rem">
+                    <option value="">Default</option>
+                    <option value="10">10 MB</option>
+                    <option value="50">50 MB</option>
+                    <option value="100" selected>100 MB</option>
+                    <option value="500">500 MB</option>
+                    <option value="1024">1 GB</option>
+                    <option value="0">Unlimited</option>
+                </select>
+                <label style="font-size:.7rem;color:var(--text2);white-space:nowrap;margin-left:8px"><?= __('proxy_timeout') ?></label>
+                <select class="form-input" id="newTimeout" style="width:80px;padding:4px 6px;font-size:.7rem">
+                    <option value="">Default</option>
+                    <option value="60" selected>60s</option>
+                    <option value="120">120s</option>
+                    <option value="300">300s</option>
+                    <option value="600">600s</option>
+                </select>
+            </div>
+            <div class="form-hint" style="margin-top:6px"><?= __('dns_hint') ?></div>
         </div>
         <div class="modal-foot">
             <button class="btn" onclick="closeModal('addSiteModal')"><?= __('cancel') ?></button>
             <button class="btn btn-accent" onclick="addSite()"><?= __('create_site') ?></button>
+        </div>
+    </div>
+</div>
+
+<!-- ─ Progress Modal (Site Create / SSL Renew) ────────── -->
+<div class="modal-overlay" id="sslProgressModal">
+    <div class="modal" style="max-width:420px">
+        <div class="modal-head">
+            <div class="modal-title" id="sslProgressTitle">
+                <span class="loading-spinner" style="width:14px;height:14px;border-width:2px;margin-right:8px;vertical-align:middle"></span>
+                <?= $lang === 'de' ? 'Bitte warten...' : 'Please wait...' ?>
+            </div>
+        </div>
+        <div class="modal-body" style="padding:10px 16px">
+            <div id="sslProgressLog" style="font-family:var(--mono);font-size:.7rem;line-height:1.7;max-height:180px;overflow-y:auto;color:var(--text2)"></div>
+        </div>
+        <div class="modal-foot" id="sslProgressFoot" style="display:none">
+            <button class="btn btn-accent" onclick="closeModal('sslProgressModal')">OK</button>
         </div>
     </div>
 </div>
@@ -5021,9 +6149,54 @@ foreach ($defaultRules as $i => $r):
         </div>
         <div class="modal-body">
             <input type="hidden" id="editSiteFile">
+            <!-- Compact Settings -->
             <div class="form-group">
-                <label class="form-label"><?= __('nginx_config') ?></label>
-                <textarea class="form-textarea" id="editSiteContent"></textarea>
+                <label class="form-label"><?= __('domains') ?></label>
+                <input class="form-input" id="editDomains" placeholder="example.com, www.example.com">
+            </div>
+            <div class="form-row" style="display:grid;grid-template-columns:1fr 100px;gap:8px">
+                <div class="form-group">
+                    <label class="form-label"><?= __('target_ip') ?></label>
+                    <input class="form-input" id="editTargetIp" placeholder="10.10.10.100">
+                </div>
+                <div class="form-group">
+                    <label class="form-label"><?= __('target_port') ?></label>
+                    <input class="form-input" id="editTargetPort" placeholder="80">
+                </div>
+            </div>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+                <label class="form-check"><input type="checkbox" id="editForceSsl"> <?= __('force_ssl') ?></label>
+                <label class="form-check"><input type="checkbox" id="editWs"> <?= __('enable_ws') ?></label>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:8px;margin-bottom:12px;align-items:center">
+                <label style="font-size:.7rem;color:var(--text2);white-space:nowrap"><?= __('max_upload') ?></label>
+                <select class="form-input" id="editMaxUpload" style="width:90px;padding:4px 6px;font-size:.7rem">
+                    <option value="">Default</option>
+                    <option value="10">10 MB</option>
+                    <option value="50">50 MB</option>
+                    <option value="100">100 MB</option>
+                    <option value="500">500 MB</option>
+                    <option value="1024">1 GB</option>
+                    <option value="0">Unlimited</option>
+                </select>
+                <label style="font-size:.7rem;color:var(--text2);white-space:nowrap;margin-left:8px"><?= __('proxy_timeout') ?></label>
+                <select class="form-input" id="editTimeout" style="width:80px;padding:4px 6px;font-size:.7rem">
+                    <option value="">Default</option>
+                    <option value="60">60s</option>
+                    <option value="120">120s</option>
+                    <option value="300">300s</option>
+                    <option value="600">600s</option>
+                </select>
+            </div>
+            <!-- Custom Config (collapsible) -->
+            <div style="border-top:1px solid var(--border-subtle);padding-top:10px;margin-top:4px">
+                <div style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none" onclick="var el=document.getElementById('editConfigWrap');el.style.display=el.style.display==='none'?'':'none'">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                    <span style="font-size:.72rem;color:var(--text3);font-weight:600"><?= __('custom_config') ?></span>
+                </div>
+                <div id="editConfigWrap" style="display:none;margin-top:8px">
+                    <textarea class="form-textarea" id="editSiteContent" style="min-height:200px;font-family:var(--mono);font-size:.7rem"></textarea>
+                </div>
             </div>
         </div>
         <div class="modal-foot">
@@ -5056,15 +6229,15 @@ function switchTab(tabName) {
     location.hash = tabName;
 
     stopWgGraph();
-    if (tabName === 'vms') loadPveVms();
-    if (tabName === 'security') { loadFwTemplates(); loadFwVmList(); }
-    if (tabName === 'network') { loadNginx(); loadNginxChecks(); }
-    if (tabName === 'system') loadZfs();
+    if (tabName === 'security') { Promise.all([loadFwTemplates(), loadFwVmList()]); }
+    if (tabName === 'network') { loadNginx(); loadNginxChecks(); loadWg(); startWgGraph(); }
+    if (tabName === 'zfs') loadZfs();
+    if (tabName === 'system') loadUpdates();
 }
 
 // Legacy hash support: map old tab names to grouped tabs
 const _tabHashMap = { fail2ban: ['security','fail2ban'], firewall: ['security','firewall'], portscan: ['security','portscan'],
-    nginx: ['network','nginx'], wireguard: ['network','wireguard'], zfs: ['system','zfs'], updates: ['system','updates'] };
+    nginx: ['network','nginx'], wireguard: ['network','wireguard'] };
 
 function switchSubTab(group, sub) {
     const tabs = document.querySelectorAll('#' + group + 'SubTabs .sub-tab, [onclick*="switchSubTab(\'' + group + '\'"] ');
@@ -5155,11 +6328,11 @@ async function loadStats() {
         document.getElementById('sHostname').textContent = d.hostname;
         document.getElementById('sKernel').textContent = d.kernel;
         document.getElementById('sUptime').textContent = d.uptime.replace('up ', '');
-        document.getElementById('sUptimeSince').textContent = 'seit ' + d.uptime_since;
+        document.getElementById('sUptimeSince').textContent = T.since + ' ' + d.uptime_since;
 
         const loadPct = Math.min(100, Math.round(d.load[0] / d.cpu_cores * 100));
         document.getElementById('sLoad').textContent = d.cpu_pct + '%';
-        document.getElementById('sLoadSub').textContent = 'Load: ' + d.load.map(l => l.toFixed(2)).join(' / ') + ' (' + d.cpu_cores + ' Cores)';
+        document.getElementById('sLoadSub').textContent = T.load_label + ' ' + d.load.map(l => l.toFixed(2)).join(' / ') + ' (' + d.cpu_cores + ' ' + T.cores + ')';
         document.getElementById('sLoadBar').style.width = d.cpu_pct + '%';
 
         const memP = pct(d.mem_used, d.mem_total);
@@ -5175,6 +6348,19 @@ async function loadStats() {
         document.getElementById('sF2bJails').textContent = d.f2b_jails;
         document.getElementById('sF2bBanned').textContent = d.f2b_banned;
         document.getElementById('sNginxSites').textContent = d.nginx_sites;
+
+        // Subscription
+        const subEl = document.getElementById('sSub');
+        const subLvl = document.getElementById('sSubLevel');
+        if (d.sub_active) {
+            subEl.textContent = T.active;
+            subEl.style.color = 'var(--green)';
+            subLvl.textContent = d.sub_level || 'Licensed';
+        } else {
+            subEl.textContent = T.none;
+            subEl.style.color = 'var(--yellow)';
+            subLvl.textContent = 'Community';
+        }
 
         // Tab badge
         const badge = document.getElementById('f2bBadge');
@@ -5271,7 +6457,6 @@ async function loadF2b() {
         const logEl = document.getElementById('f2bLog');
         logEl.innerHTML = '';
         log.forEach(line => {
-            let cls = '';
             let hl = line.replace(/&/g, '&amp;').replace(/</g, '&lt;');
             if (hl.includes(' Ban ')) { hl = hl.replace(/( Ban )/, '<span class="log-ban">$1</span>'); }
             else if (hl.includes(' Unban ')) { hl = hl.replace(/( Unban )/, '<span class="log-unban">$1</span>'); }
@@ -5360,7 +6545,7 @@ async function loadNginxChecks() {
 }
 
 async function nginxApplyFix(fixId, extra) {
-    toast('Wende Fix an...');
+    toast(T.applying_fix);
     try {
         const data = { fix_id: fixId };
         if (extra) Object.assign(data, extra);
@@ -5433,53 +6618,159 @@ async function loadNginx() {
     }
 }
 
+function toggleSslChallenge() {
+    const show = document.getElementById('newSsl').checked;
+    document.getElementById('sslChallengeRow').style.display = show ? 'flex' : 'none';
+}
+function toggleDnsFields() {
+    const isDns = document.getElementById('newChallengeType').value === 'dns';
+    document.getElementById('dnsProviderWrap').style.display = isDns ? '' : 'none';
+    if (!isDns) {
+        document.getElementById('dnsCfTokenWrap').style.display = 'none';
+        document.getElementById('dnsHetznerWrap').style.display = 'none';
+        document.getElementById('dnsIpv64Wrap').style.display = 'none';
+        return;
+    }
+    const provider = document.getElementById('newDnsProvider').value;
+    document.getElementById('dnsCfTokenWrap').style.display = provider === 'cloudflare' ? '' : 'none';
+    document.getElementById('dnsHetznerWrap').style.display = provider === 'hetzner' ? '' : 'none';
+    document.getElementById('dnsIpv64Wrap').style.display = provider === 'ipv64' ? '' : 'none';
+}
+
+let _ctTargets = [];
+async function loadCtTargets() {
+    const sel = document.getElementById('newTargetSelect');
+    try {
+        const res = await api('pve-ct-ips');
+        _ctTargets = res.ok ? res.targets : [];
+    } catch(e) { _ctTargets = []; }
+    let html = '<option value="manual">' + (document.documentElement.lang === 'de' ? '— Manuell —' : '— Manual —') + '</option>';
+    _ctTargets.forEach(t => {
+        const label = t.vmid + ': ' + t.name + ' (' + t.ip + ')';
+        html += '<option value="' + t.ip + '">' + label + '</option>';
+    });
+    sel.innerHTML = html;
+}
+function onTargetSelect() {
+    const val = document.getElementById('newTargetSelect').value;
+    if (val && val !== 'manual') {
+        document.getElementById('newTargetIp').value = val;
+    }
+}
+
 function showAddSite() {
     document.getElementById('newDomain').value = '';
-    document.getElementById('newTarget').value = 'http://10.10.10.';
+    document.getElementById('newTargetIp').value = '';
+    document.getElementById('newTargetPort').value = '80';
+    loadCtTargets();
     document.getElementById('newSsl').checked = true;
+    document.getElementById('newForceSsl').checked = true;
+    document.getElementById('newWs').checked = false;
+    document.getElementById('newMaxUpload').value = '100';
+    document.getElementById('newTimeout').value = '60';
+    document.getElementById('newEmail').value = '';
+    document.getElementById('newChallengeType').value = 'http';
+    document.getElementById('newDnsProvider').value = 'cloudflare';
+    document.getElementById('newCfToken').value = '';
+    document.getElementById('newHetznerToken').value = '';
+    document.getElementById('newIpv64Key').value = '';
+    toggleSslChallenge();
+    toggleDnsFields();
     openModal('addSiteModal');
 }
 
-async function addSite() {
+function addSite() {
     const domain = document.getElementById('newDomain').value.trim();
-    const target = document.getElementById('newTarget').value.trim();
+    const ip = document.getElementById('newTargetIp').value.trim();
+    const port = document.getElementById('newTargetPort').value.trim() || '80';
     const ssl = document.getElementById('newSsl').checked ? '1' : '0';
+    const forceSsl = document.getElementById('newForceSsl').checked ? '1' : '0';
+    const ws = document.getElementById('newWs').checked ? '1' : '0';
+    const maxUpload = document.getElementById('newMaxUpload').value;
+    const timeout = document.getElementById('newTimeout').value;
+    const target = 'http://' + ip + ':' + port;
 
-    if (!domain || !target) { toast('Domain und Ziel erforderlich', 'error'); return; }
+    if (!domain || !ip) { toast(T.domain_ip_required, 'error'); return; }
 
-    try {
-        const res = await api('nginx-add', 'POST', { domain, target, ssl });
-        if (res.ok) {
-            toast(res.message || 'Site erstellt');
-            closeModal('addSiteModal');
-            loadNginx();
-            loadStats();
-        } else {
-            toast(res.error || 'Fehler', 'error');
+    const email = document.getElementById('newEmail').value.trim();
+    const data = { domain, target, ssl, ws, force_ssl: forceSsl, max_upload: maxUpload, timeout, email };
+
+    // DNS challenge params
+    if (ssl === '1') {
+        const challengeType = document.getElementById('newChallengeType').value;
+        data.challenge = challengeType;
+        if (challengeType === 'dns') {
+            const provider = document.getElementById('newDnsProvider').value;
+            data.dns_provider = provider;
+            if (provider === 'cloudflare') {
+                data.cf_token = document.getElementById('newCfToken').value;
+                if (!data.cf_token) { toast('Cloudflare API Token erforderlich', 'error'); return; }
+            } else if (provider === 'hetzner') {
+                data.hetzner_token = document.getElementById('newHetznerToken').value;
+                if (!data.hetzner_token) { toast('Hetzner DNS API Token erforderlich', 'error'); return; }
+            } else if (provider === 'ipv64') {
+                data.ipv64_key = document.getElementById('newIpv64Key').value;
+                if (!data.ipv64_key) { toast('IPv64 API Key erforderlich', 'error'); return; }
+            }
         }
-    } catch (e) { toast('Fehler: ' + e.message, 'error'); }
+    }
+
+    closeModal('addSiteModal');
+    runWithProgress('nginx-add-stream', data,
+        (domain.split(/[\s,]+/)[0] || 'Site') + ' erstellen...',
+        function() { loadNginx(); loadStats(); }
+    );
 }
 
 function editSite(index) {
     const s = sitesData[index];
     document.getElementById('editSiteFile').value = s.file;
-    document.getElementById('editSiteTitle').textContent = s.file;
+    document.getElementById('editSiteTitle').textContent = s.domains.join(', ') || s.file;
+    document.getElementById('editDomains').value = s.domains.join(', ');
+    const m = (s.target || '').match(/https?:\/\/([\d.]+):?(\d*)/);
+    document.getElementById('editTargetIp').value = m ? m[1] : '';
+    document.getElementById('editTargetPort').value = m && m[2] ? m[2] : '80';
+    document.getElementById('editWs').checked = /proxy_set_header Upgrade/.test(s.content);
+    document.getElementById('editForceSsl').checked = /return 301 https/.test(s.content);
+    // Parse max_upload from content
+    const uploadM = s.content.match(/client_max_body_size\s+(\d+)m/i);
+    document.getElementById('editMaxUpload').value = uploadM ? uploadM[1] : '';
+    // Parse timeout from content
+    const timeoutM = s.content.match(/proxy_read_timeout\s+(\d+)/);
+    document.getElementById('editTimeout').value = timeoutM ? timeoutM[1] : '';
     document.getElementById('editSiteContent').value = s.content;
+    document.getElementById('editConfigWrap').style.display = 'none';
     openModal('editSiteModal');
 }
 
 async function saveSite() {
     const file = document.getElementById('editSiteFile').value;
-    const content = document.getElementById('editSiteContent').value;
+    const configWrap = document.getElementById('editConfigWrap');
+
+    if (configWrap.style.display !== 'none') {
+        const content = document.getElementById('editSiteContent').value;
+        try {
+            const res = await api('nginx-save', 'POST', { file, content });
+            if (res.ok) { toast('OK'); closeModal('editSiteModal'); loadNginx(); }
+            else { toast(res.error || 'Fehler', 'error'); }
+        } catch (e) { toast('Fehler: ' + e.message, 'error'); }
+        return;
+    }
+
+    const domains = document.getElementById('editDomains').value.trim();
+    const ip = document.getElementById('editTargetIp').value.trim();
+    const port = document.getElementById('editTargetPort').value.trim() || '80';
+    const ws = document.getElementById('editWs').checked ? '1' : '0';
+    const forceSsl = document.getElementById('editForceSsl').checked ? '1' : '0';
+    const maxUpload = document.getElementById('editMaxUpload').value;
+    const timeout = document.getElementById('editTimeout').value;
+
+    if (!domains || !ip) { toast(T.domain_ip_required, 'error'); return; }
+
     try {
-        const res = await api('nginx-save', 'POST', { file, content });
-        if (res.ok) {
-            toast('Konfiguration gespeichert');
-            closeModal('editSiteModal');
-            loadNginx();
-        } else {
-            toast(res.error || 'Fehler', 'error');
-        }
+        const res = await api('nginx-update', 'POST', { file, domains, ip, port, ws, force_ssl: forceSsl, max_upload: maxUpload, timeout });
+        if (res.ok) { toast('OK'); closeModal('editSiteModal'); loadNginx(); }
+        else { toast(res.error || 'Fehler', 'error'); }
     } catch (e) { toast('Fehler: ' + e.message, 'error'); }
 }
 
@@ -5488,7 +6779,7 @@ async function deleteSite(file) {
     try {
         const res = await api('nginx-delete', 'POST', { file });
         if (res.ok) {
-            toast('Site gelöscht');
+            toast(T.site_deleted);
             loadNginx();
             loadStats();
         } else {
@@ -5497,17 +6788,71 @@ async function deleteSite(file) {
     } catch (e) { toast('Fehler: ' + e.message, 'error'); }
 }
 
-async function renewCert(domain) {
-    toast('SSL-Zertifikat wird erneuert...', 'success');
-    try {
-        const res = await api('nginx-renew', 'POST', { domain });
-        if (res.ok) {
-            toast('Zertifikat für ' + domain + ' erneuert');
-            loadNginx();
-        } else {
-            toast(res.error || res.output || 'Renew fehlgeschlagen', 'error');
+function renewCert(domain) {
+    runWithProgress('nginx-renew-stream', { domain },
+        'SSL erneuern: ' + domain + '...',
+        function() { loadNginx(); }
+    );
+}
+
+function runWithProgress(endpoint, data, title, onSuccess) {
+    const logEl = document.getElementById('sslProgressLog');
+    const titleEl = document.getElementById('sslProgressTitle');
+    const footEl = document.getElementById('sslProgressFoot');
+    logEl.innerHTML = '';
+    footEl.style.display = 'none';
+    titleEl.innerHTML = '<span class="loading-spinner" style="width:14px;height:14px;border-width:2px;margin-right:8px;vertical-align:middle"></span>' + title;
+    openModal('sslProgressModal');
+
+    const fd = new FormData();
+    fd.append('_csrf', CSRF);
+    Object.entries(data).forEach(([k, v]) => fd.append(k, v));
+
+    fetch('?api=' + endpoint, { method: 'POST', body: fd }).then(function(response) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        function read() {
+            reader.read().then(function(result) {
+                if (result.done) return;
+                buffer += decoder.decode(result.value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+                lines.forEach(function(line) {
+                    if (!line.startsWith('data: ')) return;
+                    let d;
+                    try { d = JSON.parse(line.slice(6)); } catch(e) { return; }
+
+                    if (d.step && d.message) {
+                        const icon = d.ok === false
+                            ? '<span style="color:var(--red)">✗</span> '
+                            : (d.step === 'done' || d.step === 'ssl-done')
+                                ? '<span style="color:var(--green)">✓</span> '
+                                : '<span style="color:var(--text3)">›</span> ';
+                        logEl.innerHTML += '<div>' + icon + d.message + '</div>';
+                        logEl.scrollTop = logEl.scrollHeight;
+                    }
+
+                    if (d.done) {
+                        footEl.style.display = '';
+                        if (d.ok) {
+                            titleEl.innerHTML = '<span style="color:var(--green)">✓</span> ' + (d.message || 'Fertig');
+                            if (onSuccess) onSuccess();
+                        } else {
+                            titleEl.innerHTML = '<span style="color:var(--red)">✗</span> Fehlgeschlagen';
+                        }
+                    }
+                });
+                read();
+            });
         }
-    } catch (e) { toast('Fehler: ' + e.message, 'error'); }
+        read();
+    }).catch(function(e) {
+        footEl.style.display = '';
+        titleEl.innerHTML = '<span style="color:var(--red)">✗</span> Fehler';
+        logEl.innerHTML += '<div style="color:var(--red)">' + e.message + '</div>';
+    });
 }
 
 async function reloadNginx() {
@@ -5522,6 +6867,70 @@ async function reloadNginx() {
 // └──────────────────────────────────────────────────────────┘
 let _pveVms = [];
 let _pveNode = '';
+
+async function loadDashboardVms() {
+    try {
+        const d = await api('pve-vms');
+        if (!d.ok) return;
+        document.getElementById('pveVmCount').textContent = d.vms.length;
+        const el = document.getElementById('dashVmList');
+        if (!d.vms.length) { el.innerHTML = '<span style="color:var(--text3)">Keine VMs/CTs</span>'; return; }
+
+        const running = d.vms.filter(v => v.status === 'running').length;
+        const stopped = d.vms.length - running;
+
+        let html = '<div style="display:flex;gap:12px;margin-bottom:8px;font-size:.68rem">';
+        html += '<span style="color:var(--green)">' + running + ' running</span>';
+        html += '<span style="color:var(--text3)">' + stopped + ' stopped</span>';
+        html += '</div>';
+        html += '<table style="width:100%;border-collapse:collapse;font-size:.72rem">';
+        html += '<thead><tr style="border-bottom:1px solid var(--border-subtle)">';
+        html += '<th style="text-align:left;padding:4px 6px;font-size:.6rem;color:var(--text3);font-weight:600">Status</th>';
+        html += '<th style="text-align:left;padding:4px 6px;font-size:.6rem;color:var(--text3);font-weight:600">VMID</th>';
+        html += '<th style="text-align:left;padding:4px 6px;font-size:.6rem;color:var(--text3);font-weight:600">Name</th>';
+        html += '<th style="text-align:left;padding:4px 6px;font-size:.6rem;color:var(--text3);font-weight:600">Typ</th>';
+        html += '<th style="text-align:left;padding:4px 6px;font-size:.6rem;color:var(--text3);font-weight:600">vCPU</th>';
+        html += '<th style="text-align:left;padding:4px 6px;font-size:.6rem;color:var(--text3);font-weight:600">RAM</th>';
+        html += '<th style="text-align:right;padding:4px 6px;font-size:.6rem;color:var(--text3);font-weight:600"></th>';
+        html += '</tr></thead><tbody>';
+        d.vms.sort((a, b) => a.vmid - b.vmid).forEach(v => {
+            const isUp = v.status === 'running';
+            const dot = isUp ? 'var(--green)' : 'var(--text3)';
+            const typeC = v.type === 'qemu' ? '#a855f7' : 'var(--blue)';
+            const typeL = v.type === 'qemu' ? 'VM' : 'CT';
+            html += '<tr style="border-bottom:1px solid var(--border-subtle)">';
+            html += '<td style="padding:5px 6px"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:' + dot + '"></span></td>';
+            html += '<td style="padding:5px 6px;font-family:var(--mono);font-weight:600">' + v.vmid + '</td>';
+            html += '<td style="padding:5px 6px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (v.name || '—') + '</td>';
+            html += '<td style="padding:5px 6px"><span style="font-size:.58rem;padding:1px 5px;border-radius:3px;background:rgba(' + (v.type==='qemu'?'168,85,247':'64,196,255') + ',.08);color:' + typeC + '">' + typeL + '</span></td>';
+            html += '<td style="padding:5px 6px;font-family:var(--mono);font-size:.68rem;color:var(--text2)">' + v.cpus + '</td>';
+            html += '<td style="padding:5px 6px;font-family:var(--mono);font-size:.68rem;color:var(--text2)">' + (isUp ? fmtBytes(v.mem_used) + ' <span style="color:var(--text3)">/ ' + fmtBytes(v.mem) + '</span>' : fmtBytes(v.mem)) + '</td>';
+            html += '<td style="padding:5px 6px;text-align:right;white-space:nowrap">';
+            if (isUp) {
+                html += '<button class="btn btn-sm btn-red" onclick="pveVmAction(' + v.vmid + ',\'' + v.type + '\',\'stop\')" style="padding:1px 5px;font-size:.5rem" title="Stop">Stop</button> ';
+                html += '<button class="btn btn-sm" onclick="pveVmAction(' + v.vmid + ',\'' + v.type + '\',\'restart\')" style="padding:1px 5px;font-size:.5rem" title="Restart">Restart</button>';
+            } else {
+                html += '<button class="btn btn-sm btn-green" onclick="pveVmAction(' + v.vmid + ',\'' + v.type + '\',\'start\')" style="padding:1px 5px;font-size:.5rem" title="Start">Start</button>';
+            }
+            html += '</td></tr>';
+        });
+        html += '</tbody></table>';
+        el.innerHTML = html;
+    } catch (e) { }
+}
+
+async function pveVmAction(vmid, type, action) {
+    toast(action + ' ' + vmid + '...');
+    try {
+        const res = await api('pve-control', 'POST', { vmid, type, action });
+        if (res.ok) {
+            toast(vmid + ' → ' + action + ' OK');
+            setTimeout(loadDashboardVms, 2000);
+        } else {
+            toast(res.error || 'Fehler', 'error');
+        }
+    } catch (e) { toast('Fehler: ' + e.message, 'error'); }
+}
 
 async function loadPveVms() {
     try {
@@ -5539,8 +6948,6 @@ async function loadPveVms() {
             const isUp = v.status === 'running';
             const statusTag = isUp ? '<span class="tag tag-green" style="font-size:.46rem">Running</span>' : '<span class="tag tag-muted" style="font-size:.46rem">Stopped</span>';
             const typeTag = v.type === 'qemu' ? '<span style="font-size:.58rem;padding:1px 5px;border-radius:3px;background:rgba(168,85,247,.08);color:#a855f7">VM</span>' : '<span style="font-size:.58rem;padding:1px 5px;border-radius:3px;background:rgba(64,196,255,.08);color:var(--blue)">CT</span>';
-            const memPct = v.mem > 0 ? Math.round(v.mem_used / v.mem * 100) : 0;
-            const diskPct = v.disk > 0 ? Math.round(v.disk_used / v.disk * 100) : 0;
 
             html += '<tr>' +
                 '<td style="font-family:var(--mono);font-size:.78rem;font-weight:600">' + v.vmid + '</td>' +
@@ -5561,7 +6968,7 @@ async function loadPveVms() {
 
 async function pveOpenClone(vmid, type, name) {
     const typeLabel = type === 'qemu' ? 'VM' : 'CT';
-    document.getElementById('pveCloneTitle').textContent = 'Clone ' + typeLabel + ' ' + vmid + ' (' + name + ')';
+    document.getElementById('pveCloneTitle').textContent = T.clone + ' ' + typeLabel + ' ' + vmid + ' (' + name + ')';
 
     document.getElementById('pveCloneBody').innerHTML = '<div style="text-align:center;padding:24px"><span class="loading-spinner" style="width:20px;height:20px;border-width:2px"></span></div>';
     openModal('pveCloneModal');
@@ -5700,7 +7107,7 @@ async function pveDoClone() {
     const autoStart = document.getElementById('pveCloneAutoStart')?.checked;
     const onboot = document.getElementById('pveCloneOnboot')?.checked ? '1' : '0';
 
-    if (!newid || !name) { toast('VMID und Name erforderlich', 'error'); return; }
+    if (!newid || !name) { toast(T.vmid_name_required, 'error'); return; }
 
     const btn = document.getElementById('pveCloneBtn');
     btn.disabled = true;
@@ -5710,11 +7117,11 @@ async function pveDoClone() {
     try {
         const res = await api('pve-clone', 'POST', { vmid, type, newid, name, full, storage, description });
         if (!res.ok) {
-            toast(res.output || res.error || 'Clone fehlgeschlagen', 'error');
-            btn.disabled = false; btn.innerHTML = 'Clone starten';
+            toast(res.output || res.error || T.clone_failed, 'error');
+            btn.disabled = false; btn.innerHTML = T.clone_start;
             return;
         }
-        toast('Clone gestartet — warte auf Abschluss...');
+        toast(T.clone_started);
 
         // Step 2: Wait for clone to finish (poll every 3s, max 120s)
         btn.innerHTML = '<span class="loading-spinner" style="width:12px;height:12px;border-width:1.5px;margin-right:4px"></span>2/3 Warte...';
@@ -5726,7 +7133,7 @@ async function pveDoClone() {
         }
 
         if (!ready) {
-            toast('Clone laeuft noch im Hintergrund', 'success');
+            toast(T.clone_background, 'success');
             closeModal('pveCloneModal');
             setTimeout(loadPveVms, 5000);
             return;
@@ -5739,13 +7146,12 @@ async function pveDoClone() {
             net_disconnect: netDisconnect
         });
         if (cfgRes.ok) {
-            toast('Hardware-Config angepasst');
+            toast(T.hw_config_saved);
         }
 
         // Optional: Start
         if (autoStart) {
-            const node = _pveNode || 'localhost';
-            toast(type === 'qemu' ? 'VM' : 'CT' + ' ' + newid + ' wird gestartet...');
+            toast((type === 'qemu' ? 'VM' : 'CT') + ' ' + newid + ' wird gestartet...');
             // Start via pvesh
             await api('pve-control', 'POST', { vmid: newid, type, action: 'start' });
         }
@@ -5755,8 +7161,8 @@ async function pveDoClone() {
         setTimeout(loadPveVms, 2000);
 
     } catch (e) {
-        toast('Fehler: ' + e.message, 'error');
-        btn.disabled = false; btn.innerHTML = 'Clone starten';
+        toast(T.error + ': ' + e.message, 'error');
+        btn.disabled = false; btn.innerHTML = T.clone_start;
     }
 }
 
@@ -5774,15 +7180,20 @@ function zfsSwitchTab(tab, btn) {
 }
 
 async function loadZfs() {
+    // Set active sub-tab button
+    const poolsBtn = document.querySelector('.zfs-sub[data-zfstab="pools"]');
+    if (poolsBtn && !document.querySelector('.zfs-sub[style*="var(--accent)"]')) {
+        zfsSwitchTab('pools', poolsBtn);
+    }
+
+    // Show loading state
+    const poolsEl = document.getElementById('zfsPools');
+    if (poolsEl && !poolsEl.innerHTML) poolsEl.innerHTML = '<div style="padding:12px;color:var(--text3);font-size:.75rem"><span class="loading-spinner" style="width:12px;height:12px;border-width:1.5px;margin-right:6px"></span>' + T.loading + '</div>';
+
     try {
-        // Load ZFS + VM names in parallel
-        const [d, vmData] = await Promise.all([
-            api('zfs-status'),
-            _pveVms.length ? Promise.resolve(null) : api('pve-vms')
-        ]);
+        const d = await api('zfs-status');
         if (!d.ok) return;
         _zfsData = d;
-        if (vmData && vmData.ok) _pveVms = vmData.vms;
 
         // Pools
         const poolsEl = document.getElementById('zfsPools');
@@ -5820,33 +7231,33 @@ async function loadZfs() {
         const autoStatus = document.getElementById('zfsAutoStatus');
         const autoBody = document.getElementById('zfsAutoBody');
         if (!d.auto_installed) {
-            autoStatus.innerHTML = '<span class="tag tag-red">Nicht installiert</span>';
+            autoStatus.innerHTML = '<span class="tag tag-red">' + T.zfs_not_installed + '</span>';
             autoBody.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border-subtle);border-radius:var(--radius);padding:16px;text-align:center">' +
-                '<div style="font-size:.8rem;color:var(--text2);margin-bottom:10px">zfs-auto-snapshot ist nicht installiert</div>' +
-                '<button class="btn btn-accent" onclick="zfsInstallAuto()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Jetzt installieren</button></div>';
+                '<div style="font-size:.8rem;color:var(--text2);margin-bottom:10px">' + T.zfs_auto_not_installed_desc + '</div>' +
+                '<button class="btn btn-accent" onclick="zfsInstallAuto()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> ' + T.zfs_install_now + '</button></div>';
         } else {
-            autoStatus.innerHTML = '<span class="tag tag-green">Installiert</span>';
-            let autoHtml = '<table class="data-table" style="margin-bottom:10px"><thead><tr><th>Intervall</th><th>Status</th><th>Aufbewahren</th><th>Zeitraum</th></tr></thead><tbody>';
-            const intervals = {frequent:'alle 15 Min', hourly:'Stündlich', daily:'Taeglich', weekly:'Woechentlich', monthly:'Monatlich'};
+            autoStatus.innerHTML = '<span class="tag tag-green">' + T.installed + '</span>';
+            let autoHtml = '<table class="data-table" style="margin-bottom:10px"><thead><tr><th>' + T.interval + '</th><th>' + T.status + '</th><th>' + T.keep + '</th><th>' + T.timespan + '</th></tr></thead><tbody>';
+            const intervals = {frequent:T.interval_frequent, hourly:T.interval_hourly, daily:T.interval_daily, weekly:T.interval_weekly, monthly:T.interval_monthly};
             d.auto_crons.forEach(c => {
                 const desc = intervals[c.label] || c.label;
                 let timespan = '';
-                if (c.label === 'frequent') timespan = c.keep * 15 + ' Min';
-                else if (c.label === 'hourly') timespan = c.keep + ' Std';
-                else if (c.label === 'daily') timespan = c.keep + ' Tage';
-                else if (c.label === 'weekly') timespan = c.keep + ' Wochen';
-                else if (c.label === 'monthly') timespan = c.keep + ' Monate';
+                if (c.label === 'frequent') timespan = c.keep * 15 + ' ' + T.unit_min;
+                else if (c.label === 'hourly') timespan = c.keep + ' ' + T.unit_hours;
+                else if (c.label === 'daily') timespan = c.keep + ' ' + T.unit_days;
+                else if (c.label === 'weekly') timespan = c.keep + ' ' + T.unit_weeks;
+                else if (c.label === 'monthly') timespan = c.keep + ' ' + T.unit_months;
                 autoHtml += '<tr>' +
                     '<td style="font-size:.75rem;font-weight:500">' + desc + ' <span style="font-size:.58rem;color:var(--text3)">(' + c.label + ')</span></td>' +
-                    '<td>' + (c.exists ? '<span class="tag tag-green" style="font-size:.46rem">Aktiv</span>' : '<span class="tag tag-muted" style="font-size:.46rem">Aus</span>') + '</td>' +
-                    '<td><input type="number" min="1" max="999" value="' + c.keep + '" style="width:60px;font-family:var(--mono);font-size:.72rem;padding:1px 4px;background:var(--surface);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text);text-align:center" onchange="zfsSetRetention(\'' + c.label + '\',this.value)" data-orig="' + c.keep + '"></td>' +
-                    '<td style="font-size:.72rem;color:var(--text3)">' + timespan + '</td>' +
+                    '<td>' + (c.exists ? '<span class="tag tag-green" style="font-size:.46rem">' + T.active + '</span>' : '<span class="tag tag-muted" style="font-size:.46rem">' + T.off + '</span>') + '</td>' +
+                    '<td><input type="number" min="1" max="999" value="' + c.keep + '" style="width:60px;font-family:var(--mono);font-size:.72rem;padding:1px 4px;background:var(--surface);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text);text-align:center" onchange="zfsSetRetention(\'' + c.label + '\',this.value);zfsUpdateTimespan(this)" data-label="' + c.label + '" data-orig="' + c.keep + '"></td>' +
+                    '<td class="zfs-timespan" style="font-size:.72rem;color:var(--text3)">' + timespan + '</td>' +
                 '</tr>';
             });
             autoHtml += '</tbody></table>';
 
             // Per-dataset toggles
-            autoHtml += '<div style="font-size:.65rem;color:var(--text3);margin-bottom:4px">Pro Dataset ein-/ausschalten:</div>';
+            autoHtml += '<div style="font-size:.65rem;color:var(--text3);margin-bottom:4px">' + T.per_dataset + ':</div>';
             autoHtml += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
             d.datasets.forEach(ds => {
                 const short = ds.name.split('/').pop();
@@ -5863,7 +7274,7 @@ async function loadZfs() {
         // Populate filter dropdown
         const filterSel = document.getElementById('zfsSnapFilter');
         const curFilter = filterSel.value;
-        filterSel.innerHTML = '<option value="">Alle Datasets</option>';
+        filterSel.innerHTML = '<option value="">' + T.all_datasets + '</option>';
         const dsNames = [...new Set(d.snapshots.map(s => s.dataset))];
         dsNames.forEach(n => {
             const short = n.includes('subvol-') ? n.match(/subvol-(\d+)/)?.[0] || n : n.split('/').pop();
@@ -5958,7 +7369,7 @@ function zfsRenderSnaps() {
 
         // "Show more" button
         if (hasMore) {
-            html += '<div style="text-align:center;padding:4px"><button class="btn btn-sm" style="font-size:.58rem;padding:2px 12px" onclick="document.querySelectorAll(\'.zsg-hidden-' + groupId + '\').forEach(r=>r.style.display=\'\');this.remove()">+ ' + (items.length - SHOW_LAST) + ' weitere anzeigen</button></div>';
+            html += '<div style="text-align:center;padding:4px"><button class="btn btn-sm" style="font-size:.58rem;padding:2px 12px" onclick="document.querySelectorAll(\'.zsg-hidden-' + groupId + '\').forEach(r=>r.style.display=\'\');this.remove()">+ ' + (items.length - SHOW_LAST) + ' ' + T.show_more + '</button></div>';
         }
 
         html += '</div>';
@@ -5967,10 +7378,10 @@ function zfsRenderSnaps() {
 }
 
 async function zfsInstallAuto() {
-    toast('Installiere zfs-auto-snapshot...');
+    toast(T.zfs_installing);
     try {
         const res = await api('zfs-install-auto', 'POST', {});
-        if (res.ok) { toast('zfs-auto-snapshot installiert'); loadZfs(); }
+        if (res.ok) { toast(T.zfs_installed_msg); loadZfs(); }
         else toast(res.output || 'Fehler', 'error');
     } catch (e) { toast('Fehler: ' + e.message, 'error'); }
 }
@@ -5978,23 +7389,37 @@ async function zfsInstallAuto() {
 async function zfsToggleAuto(dataset, enabled) {
     try {
         const res = await api('zfs-auto-toggle', 'POST', { dataset, enabled: enabled ? '1' : '0' });
-        if (res.ok) toast('Auto-Snapshot ' + (enabled ? 'aktiviert' : 'deaktiviert') + ': ' + dataset.split('/').pop());
+        if (res.ok) toast((enabled ? T.auto_snap_enabled : T.auto_snap_disabled) + ': ' + dataset.split('/').pop());
         else toast(res.output || 'Fehler', 'error');
     } catch (e) { toast('Fehler: ' + e.message, 'error'); }
 }
 
 async function zfsSetRetention(label, value) {
     const keep = parseInt(value);
-    if (!keep || keep < 1 || keep > 999) { toast('Wert muss zwischen 1-999 liegen', 'error'); return; }
+    if (!keep || keep < 1 || keep > 999) { toast(T.retention_range_error, 'error'); return; }
     try {
         const res = await api('zfs-set-retention', 'POST', { label, keep });
-        if (res.ok) toast('Retention ' + label + ' → ' + keep + ' Snapshots');
+        if (res.ok) toast(T.retention_saved.replace('%label%', label).replace('%keep%', keep));
         else toast(res.error || 'Fehler', 'error');
     } catch (e) { toast('Fehler: ' + e.message, 'error'); }
 }
 
+function zfsUpdateTimespan(input) {
+    const label = input.dataset.label;
+    const keep = parseInt(input.value) || 0;
+    const td = input.closest('tr').querySelector('.zfs-timespan');
+    if (!td) return;
+    let text = '';
+    if (label === 'frequent') text = (keep * 15) + ' ' + T.unit_min;
+    else if (label === 'hourly') text = keep + ' ' + T.unit_hours;
+    else if (label === 'daily') text = keep + ' ' + T.unit_days;
+    else if (label === 'weekly') text = keep + ' ' + T.unit_weeks;
+    else if (label === 'monthly') text = keep + ' ' + T.unit_months;
+    td.textContent = text;
+}
+
 function zfsCreateSnapModal() {
-    if (!_zfsData || !_zfsData.datasets.length) { toast('Keine Datasets', 'error'); return; }
+    if (!_zfsData || !_zfsData.datasets.length) { toast(T.no_datasets, 'error'); return; }
     const ds = _zfsData.datasets;
     const defaultName = 'manual-' + new Date().toISOString().slice(0,19).replace(/[T:]/g, '-');
     let body = '<div class="form-group"><label class="form-label">Dataset</label>' +
@@ -6019,7 +7444,7 @@ function zfsCreateSnapModal() {
 async function zfsDoSnap() {
     const dataset = document.getElementById('zfsSnapDs')?.value;
     const name = document.getElementById('zfsSnapName')?.value?.trim();
-    if (!dataset || !name) { toast('Dataset und Name erforderlich', 'error'); return; }
+    if (!dataset || !name) { toast(T.dataset_name_required, 'error'); return; }
     closeModal('zfsSnapModal');
     try {
         const res = await api('zfs-snapshot', 'POST', { dataset, name });
@@ -6032,7 +7457,7 @@ async function zfsDeleteSnap(snap) {
     if (!await appConfirm('Snapshot löschen', 'Snapshot <strong>' + snap.split('@')[1] + '</strong> löschen?')) return;
     try {
         const res = await api('zfs-destroy-snap', 'POST', { snapshot: snap });
-        if (res.ok) { toast('Snapshot gelöscht'); loadZfs(); }
+        if (res.ok) { toast(T.snap_deleted); loadZfs(); }
         else toast(res.output || 'Fehler', 'error');
     } catch (e) { toast('Fehler: ' + e.message, 'error'); }
 }
@@ -6080,12 +7505,14 @@ async function zfsSnapCloneVm(snap) {
     }
 
     // Parse network from source config
-    let srcIp = '', srcGw = '', srcBridge = '', srcDns = cfg.nameserver || '';
+    let srcIp = '', srcGw = '', srcBridge = '', srcDns = cfg.nameserver || '', srcIp6 = '', srcGw6 = '';
     const net0 = cfg.net0 || '';
     if (net0) {
         srcIp = (net0.match(/ip=([^,]+)/) || [])[1] || '';
         srcGw = (net0.match(/gw=([^,]+)/) || [])[1] || '';
         srcBridge = (net0.match(/bridge=([^,]+)/) || [])[1] || '';
+        srcIp6 = (net0.match(/ip6=([^,]+)/) || [])[1] || '';
+        srcGw6 = (net0.match(/gw6=([^,]+)/) || [])[1] || '';
     }
 
     document.getElementById('zfsSnapCloneTitle').innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" style="margin-right:6px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' + typeLabel + ' ' + sourceVmid + ' aus Snapshot clonen';
@@ -6148,6 +7575,7 @@ async function zfsSnapCloneVm(snap) {
                 </label>
             </div>
             <div id="zscNetCustomFields" style="opacity:.35">
+                <div style="font-size:.58rem;font-weight:600;color:var(--text3);margin-bottom:4px">IPv4</div>
                 <div style="display:flex;gap:8px;margin-bottom:8px">
                     <div style="flex:2">
                         <label style="font-size:.62rem;color:var(--text3);display:block;margin-bottom:2px">IP-Adresse (CIDR)</label>
@@ -6156,6 +7584,17 @@ async function zfsSnapCloneVm(snap) {
                     <div style="flex:1">
                         <label style="font-size:.62rem;color:var(--text3);display:block;margin-bottom:2px">Gateway</label>
                         <input class="form-input" id="zscGw" value="${srcGw}" placeholder="10.10.10.1" style="padding:4px 8px;font-size:.72rem;font-family:var(--mono)" disabled>
+                    </div>
+                </div>
+                <div style="font-size:.58rem;font-weight:600;color:var(--text3);margin-bottom:4px;margin-top:8px">IPv6</div>
+                <div style="display:flex;gap:8px;margin-bottom:8px">
+                    <div style="flex:2">
+                        <label style="font-size:.62rem;color:var(--text3);display:block;margin-bottom:2px">IPv6-Adresse (CIDR)</label>
+                        <input class="form-input" id="zscIp6" value="${srcIp6}" placeholder="2a01:4f9::100/64 oder dhcp" style="padding:4px 8px;font-size:.72rem;font-family:var(--mono)" disabled>
+                    </div>
+                    <div style="flex:1">
+                        <label style="font-size:.62rem;color:var(--text3);display:block;margin-bottom:2px">IPv6 Gateway</label>
+                        <input class="form-input" id="zscGw6" value="${srcGw6}" placeholder="fe80::1" style="padding:4px 8px;font-size:.72rem;font-family:var(--mono)" disabled>
                     </div>
                 </div>
                 <div style="display:flex;gap:8px">
@@ -6195,7 +7634,7 @@ async function zfsSnapCloneVm(snap) {
     };
 
     const btn = document.getElementById('zfsSnapCloneBtn');
-    btn.disabled = false; btn.textContent = 'Clone starten';
+    btn.disabled = false; btn.textContent = T.clone_start;
     openModal('zfsSnapCloneModal');
 }
 
@@ -6210,7 +7649,7 @@ async function zfsSnapCloneSubmit() {
     const autoStart = document.getElementById('zscStart').checked ? '1' : '0';
     const netMode = document.querySelector('input[name="zscNetMode"]:checked')?.value || 'keep';
 
-    if (!newVmid || !name) { toast('VMID und Name erforderlich', 'error'); return; }
+    if (!newVmid || !name) { toast(T.vmid_name_required, 'error'); return; }
 
     const data = {
         snapshot: snap, new_vmid: newVmid, new_name: name,
@@ -6222,6 +7661,8 @@ async function zfsSnapCloneSubmit() {
     if (netMode === 'custom') {
         data.new_ip = document.getElementById('zscIp')?.value?.trim() || '';
         data.new_gw = document.getElementById('zscGw')?.value?.trim() || '';
+        data.new_ip6 = document.getElementById('zscIp6')?.value?.trim() || '';
+        data.new_gw6 = document.getElementById('zscGw6')?.value?.trim() || '';
         data.new_bridge = document.getElementById('zscBridge')?.value?.trim() || '';
         data.new_dns = document.getElementById('zscDns')?.value?.trim() || '';
     }
@@ -6236,12 +7677,12 @@ async function zfsSnapCloneSubmit() {
             closeModal('zfsSnapCloneModal');
             loadPveVms && loadPveVms();
         } else {
-            toast(res.error || 'Fehler', 'error');
-            btn.disabled = false; btn.textContent = 'Clone starten';
+            toast(res.error || T.error, 'error');
+            btn.disabled = false; btn.textContent = T.clone_start;
         }
     } catch (e) {
-        toast('Fehler: ' + e.message, 'error');
-        btn.disabled = false; btn.textContent = 'Clone starten';
+        toast(T.error + ': ' + e.message, 'error');
+        btn.disabled = false; btn.textContent = T.clone_start;
     }
 }
 
@@ -6268,6 +7709,7 @@ let wgChart = null;
 let wgLastBytes = null;
 let wgGraphTimer = null;
 let wgPollCount = 0;
+let wgStatusTimer = null;
 
 function fmtSpeed(b) {
     if (b < 1024) return b.toFixed(0) + ' B/s';
@@ -6409,10 +7851,15 @@ function startWgGraph() {
         pollWgTraffic();
         wgGraphTimer = setInterval(pollWgTraffic, 5000);
     }, 2000);
+    // Auto-refresh peer status every 10s
+    if (!wgStatusTimer) {
+        wgStatusTimer = setInterval(loadWg, 10000);
+    }
 }
 
 function stopWgGraph() {
     if (wgGraphTimer) { clearInterval(wgGraphTimer); wgGraphTimer = null; }
+    if (wgStatusTimer) { clearInterval(wgStatusTimer); wgStatusTimer = null; }
 }
 
 // ── WireGuard Tunnel-Verwaltung ─────────────────────
@@ -6438,7 +7885,10 @@ async function loadWg() {
                 peersHtml = iface.peers.map(p => {
                     let handshakeText = 'Nie';
                     let handshakeTag = 'tag-red';
-                    if (p.handshake_ago !== null) {
+                    if (p.from_config) {
+                        handshakeText = 'Config';
+                        handshakeTag = 'tag-muted';
+                    } else if (p.handshake_ago !== null) {
                         if (p.handshake_ago < 180) {
                             handshakeText = p.handshake_ago + 's';
                             handshakeTag = 'tag-green';
@@ -6450,31 +7900,56 @@ async function loadWg() {
                             handshakeTag = 'tag-red';
                         }
                     }
+                    const vpnIp = (p.allowed_ips || '').split(',').map(s => s.trim()).find(s => s.endsWith('/32'))?.replace('/32','')
+                        || (p.allowed_ips || '').split(',')[0]?.trim().split('/')[0] || '';
                     return `
-                    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--border-subtle)">
-                        <div style="min-width:200px">
-                            <div style="font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Endpoint</div>
-                            <div style="font-family:var(--mono);font-size:.82rem">${p.endpoint || '<span style="color:var(--text3)">---</span>'}</div>
-                        </div>
-                        <div style="min-width:200px">
-                            <div style="font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Allowed IPs</div>
-                            <div style="font-family:var(--mono);font-size:.82rem">${p.allowed_ips}</div>
+                    <div style="display:grid;grid-template-columns:100px 110px 140px 160px 70px 110px 160px auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-subtle)">
+                        <div>
+                            <div style="font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Peer</div>
+                            <div style="font-size:.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.name || ''}">${p.name || '<span style="color:var(--text3)">---</span>'}</div>
                         </div>
                         <div>
-                            <div style="font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Handshake</div>
+                            <div style="font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">VPN IP</div>
+                            <div style="font-family:var(--mono);font-size:.78rem;color:var(--accent)">${vpnIp || '---'}</div>
+                        </div>
+                        <div>
+                            <div style="font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Endpoint</div>
+                            <div style="font-family:var(--mono);font-size:.74rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.endpoint || ''}">${p.endpoint || '<span style="color:var(--text3)">---</span>'}</div>
+                        </div>
+                        <div>
+                            <div style="font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Allowed IPs</div>
+                            <div style="font-family:var(--mono);font-size:.74rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.allowed_ips}">${p.allowed_ips}</div>
+                        </div>
+                        <div>
+                            <div style="font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Status</div>
                             <span class="tag ${handshakeTag}">${handshakeText}</span>
                         </div>
                         <div>
                             <div style="font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Transfer</div>
-                            <div style="font-family:var(--mono);font-size:.78rem;color:var(--text2)">
-                                <span style="color:var(--green)">&darr;</span> ${fmtBytes(p.rx_bytes)}
-                                &nbsp;
-                                <span style="color:var(--blue)">&uarr;</span> ${fmtBytes(p.tx_bytes)}
+                            <div style="font-family:var(--mono);font-size:.72rem;color:var(--text2)">
+                                <span style="color:var(--green)">&darr;</span>${fmtBytes(p.rx_bytes)}
+                                <span style="color:var(--blue)">&uarr;</span>${fmtBytes(p.tx_bytes)}
                             </div>
                         </div>
                         <div>
                             <div style="font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Public Key</div>
-                            <div style="font-family:var(--mono);font-size:.68rem;color:var(--text3);max-width:180px;overflow:hidden;text-overflow:ellipsis" title="${p.public_key}">${p.public_key.substring(0,20)}...</div>
+                            <div style="font-family:var(--mono);font-size:.62rem;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" title="${p.public_key}" onclick="navigator.clipboard.writeText('${p.public_key}');toast('Key kopiert!')">${p.public_key.substring(0,20)}...</div>
+                        </div>
+                        <div style="display:flex;gap:4px;justify-content:flex-end">
+                            <button class="btn btn-sm" onclick="wgEditPeerOpen('${iface.name}','${p.public_key}')" title="Peer bearbeiten" style="padding:2px 6px">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            </button>
+                            <button class="btn btn-sm" onclick="wgDownloadConf('${iface.name}')" title=".conf" style="padding:2px 6px;font-size:.55rem">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                .conf
+                            </button>
+                            <button class="btn btn-sm" onclick="wgDownloadPeerScript('${iface.name}')" title=".sh" style="padding:2px 6px;font-size:.55rem">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                .sh
+                            </button>
+                            <button class="btn btn-sm btn-red" onclick="wgRemovePeer('${iface.name}','${p.public_key}')" title="${T.remove_peer}" style="padding:2px 6px">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+                            </button>
                         </div>
                     </div>`;
                 }).join('');
@@ -6482,18 +7957,30 @@ async function loadWg() {
                 peersHtml = '<div style="color:var(--text3);font-size:.82rem;padding:8px 0">Keine Peers konfiguriert</div>';
             }
 
+            const addr = iface.address || '';
+            const gateway = addr ? addr.split('/')[0] : '';
+            const subnet = addr || '';
+            const pubShort = iface.public_key ? iface.public_key.substring(0,16) + '...' : '---';
+
             grid.innerHTML += `
                 <div class="jail-card">
                     <div class="jail-header">
                         <div class="jail-name">
                             ${statusTag}
                             <span style="font-family:var(--mono);font-size:.95rem">${iface.name}</span>
-                            ${iface.listen_port ? '<span class="tag tag-muted">:' + iface.listen_port + '</span>' : ''}
                         </div>
                         <div style="display:flex;gap:6px;align-items:center">
+                            <button class="btn btn-sm btn-green" onclick="wgAddPeerOpen('${iface.name}')" title="${T.add_peer}">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+                                + Peer
+                            </button>
                             <button class="btn btn-sm" onclick="showWgConfig('${iface.name}')" title="${T.show_config}">
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                 Config
+                            </button>
+                            <button class="btn btn-sm" onclick="wgShowLogs('${iface.name}')" title="Logs">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                                Logs
                             </button>
                             ${iface.active ? `
                                 <button class="btn btn-sm btn-red" onclick="wgControl('${iface.name}','stop')">
@@ -6512,11 +7999,27 @@ async function loadWg() {
                             `}
                         </div>
                     </div>
+                    <div style="display:flex;gap:20px;padding:8px 20px;background:rgba(0,0,0,.15);border-bottom:1px solid var(--border-subtle);font-size:.7rem;flex-wrap:wrap">
+                        <div><span style="color:var(--text3)">VPN-Netz:</span> <span style="font-family:var(--mono);color:var(--accent)">${subnet || '---'}</span></div>
+                        <div><span style="color:var(--text3)">Gateway:</span> <span style="font-family:var(--mono)">${gateway || '---'}</span></div>
+                        <div><span style="color:var(--text3)">Port:</span> <span style="font-family:var(--mono)">${iface.listen_port || 'random'}</span></div>
+                        <div><span style="color:var(--text3)">Public Key:</span> <span style="font-family:var(--mono);font-size:.62rem;cursor:pointer;color:var(--text3)" title="${iface.public_key || ''}" onclick="navigator.clipboard.writeText('${iface.public_key || ''}');toast('Key kopiert!')">${pubShort}</span></div>
+                        <div><span style="color:var(--text3)">Peers:</span> <span style="font-family:var(--mono)">${iface.peers.length}</span></div>
+                    </div>
                     <div class="jail-body">
                         ${peersHtml}
                     </div>
                 </div>`;
         });
+
+        // Show restart banner if any interface has pending config changes
+        const needsRestart = data.find(i => i.needs_restart);
+        if (needsRestart) {
+            wgShowRestartBanner(needsRestart.name, needsRestart.name + ' — Config geändert seit letztem Start. Restart empfohlen.');
+        } else {
+            const banner = document.getElementById('wgRestartBanner');
+            if (banner) banner.style.display = 'none';
+        }
     } catch (e) {
     }
 }
@@ -6524,15 +8027,78 @@ async function loadWg() {
 async function showWgConfig(iface) {
     try {
         const res = await api('wg-config&iface=' + iface);
-        if (res.ok) {
-            document.getElementById('wgConfigIface').value = iface;
-            document.getElementById('wgConfigTitle').textContent = iface + '.conf';
-            document.getElementById('wgConfigContent').value = res.config;
-            openModal('wgConfigModal');
-        } else {
-            toast(res.error || 'Config nicht gefunden', 'error');
-        }
+        if (!res.ok) { toast(res.error || 'Fehler', 'error'); return; }
+        const conf = res.config;
+        const get = (key) => { const m = conf.match(new RegExp(key + '\\s*=\\s*(.+)')); return m ? m[1].trim() : ''; };
+
+        document.getElementById('wgEditIfaceTitle').textContent = iface + ' — Interface';
+        document.getElementById('wgEditIfaceBody').innerHTML = `
+            <input type="hidden" id="wgeiIface" value="${iface}">
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Address (Tunnel-IP)</label>
+                    <input class="form-input" id="wgeiAddr" value="${get('Address')}" placeholder="10.10.20.1/24">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">ListenPort</label>
+                    <input class="form-input" id="wgeiPort" type="number" value="${get('ListenPort')}" placeholder="51820">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">PostUp</label>
+                <input class="form-input" id="wgeiPostUp" value="${get('PostUp')}" style="font-size:.7rem" placeholder="iptables Regeln etc.">
+            </div>
+            <div class="form-group">
+                <label class="form-label">PostDown</label>
+                <input class="form-input" id="wgeiPostDown" value="${get('PostDown')}" style="font-size:.7rem" placeholder="iptables Cleanup etc.">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Private Key</label>
+                <input class="form-input" id="wgeiPriv" value="${get('PrivateKey')}" style="font-size:.68rem" readonly>
+                <div class="form-hint">Kann nicht geändert werden (Public Key hängt davon ab)</div>
+            </div>
+        `;
+        openModal('wgEditIfaceModal');
     } catch (e) { toast('Fehler: ' + e.message, 'error'); }
+}
+
+async function wgEditIfaceSave() {
+    const iface = document.getElementById('wgeiIface').value;
+    const addr = document.getElementById('wgeiAddr').value.trim();
+    const port = document.getElementById('wgeiPort').value.trim();
+    const postUp = document.getElementById('wgeiPostUp').value.trim();
+    const postDown = document.getElementById('wgeiPostDown').value.trim();
+    const privKey = document.getElementById('wgeiPriv').value.trim();
+
+    if (!addr || !privKey) { toast(T.wg_fields_required, 'error'); return; }
+
+    const btn = document.getElementById('wgEditIfaceSaveBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="loading-spinner" style="width:12px;height:12px;border-width:1.5px"></span>'; }
+
+    try {
+        // Read current config, keep all [Peer] blocks, replace [Interface]
+        const cur = await api('wg-config&iface=' + iface);
+        if (!cur.ok) { toast(cur.error || 'Fehler', 'error'); return; }
+
+        const peers = cur.config.split(/(?=\[Peer\])/i).slice(1).join('');
+        let newIface = '[Interface]\n';
+        newIface += 'PrivateKey = ' + privKey + '\n';
+        newIface += 'Address = ' + addr + '\n';
+        if (port) newIface += 'ListenPort = ' + port + '\n';
+        if (postUp) newIface += 'PostUp = ' + postUp + '\n';
+        if (postDown) newIface += 'PostDown = ' + postDown + '\n';
+
+        const res = await api('wg-save', 'POST', { iface, content: newIface + '\n' + peers });
+        if (res.ok) {
+            toast(T.iface_saved);
+            closeModal('wgEditIfaceModal');
+            loadWg();
+            wgShowRestartBanner(iface, iface + ' — Interface geändert. Restart empfohlen.');
+        } else {
+            toast(res.error || T.error, 'error');
+        }
+    } catch (e) { toast(T.error + ': ' + e.message, 'error'); }
+    if (btn) { btn.disabled = false; btn.textContent = T.save; }
 }
 
 async function saveWgConfig() {
@@ -6541,12 +8107,12 @@ async function saveWgConfig() {
     try {
         const res = await api('wg-save', 'POST', { iface, content });
         if (res.ok) {
-            toast('Config gespeichert');
+            toast(T.config_saved);
             closeModal('wgConfigModal');
         } else {
-            toast(res.error || 'Fehler', 'error');
+            toast(res.error || T.error, 'error');
         }
-    } catch (e) { toast('Fehler: ' + e.message, 'error'); }
+    } catch (e) { toast(T.error + ': ' + e.message, 'error'); }
 }
 
 async function wgControl(iface, cmd) {
@@ -6585,16 +8151,12 @@ async function wgWizardOpen() {
     while (existing.includes('wg' + nextNum)) nextNum++;
     _wgWizData.iface = 'wg' + nextNum;
 
-    // Find next free subnet (10.10.X0.1/24)
-    let subnet = 30;
-    while (existing.some(e => { try { return false; } catch(x) { return false; } }) && subnet < 250) subnet++;
-
     wgWizStep1();
     openModal('wgWizardModal');
 }
 
 function wgWizStep1() {
-    document.getElementById('wgWizardTitle').textContent = 'Schritt 1/3 — Tunnel-Grundlagen';
+    document.getElementById('wgWizardTitle').textContent = T.step1_title;
     document.getElementById('wgWizardBody').innerHTML = `
         <div class="form-row">
             <div class="form-group">
@@ -6639,7 +8201,7 @@ function wgWizStep1() {
                         <div style="font-size:.76rem;font-weight:500">NAT / Masquerading</div>
                     </div>
                     <select id="wgWizNatIface" onchange="wgWizUpdatePostUp()" style="width:140px;background:var(--surface-solid);border:1px solid var(--border-subtle);border-radius:4px;padding:4px 8px;font-size:.72rem;color:var(--text);flex-shrink:0">
-                        <option value="">Laden...</option>
+                        <option value="">${T.loading}</option>
                     </select>
                 </label>
 
@@ -6649,7 +8211,7 @@ function wgWizStep1() {
                         <div style="font-size:.76rem;font-weight:500">Forwarding zu Bridge</div>
                     </div>
                     <select id="wgWizFwdIface" onchange="wgWizUpdatePostUp()" style="width:140px;background:var(--surface-solid);border:1px solid var(--border-subtle);border-radius:4px;padding:4px 8px;font-size:.72rem;color:var(--text);flex-shrink:0">
-                        <option value="">Laden...</option>
+                        <option value="">${T.loading}</option>
                     </select>
                 </label>
             </div>
@@ -6735,11 +8297,11 @@ function wgWizStep2() {
     _wgWizData.postUp = document.getElementById('wgWizPostUp').value.trim();
 
     if (!_wgWizData.iface || !_wgWizData.address || !_wgWizData.privateKey) {
-        toast('Interface, IP und Private Key erforderlich', 'error');
+        toast(T.wg_fields_required, 'error');
         return;
     }
 
-    document.getElementById('wgWizardTitle').textContent = 'Schritt 2/3 — Peer (Gegenstelle)';
+    document.getElementById('wgWizardTitle').textContent = T.step2_title;
     document.getElementById('wgWizardBody').innerHTML = `
         <div class="form-group">
             <label class="form-label">Peer Endpoint <span style="font-size:.55rem;color:var(--text3)">(IP:Port der Gegenstelle)</span></label>
@@ -6770,6 +8332,10 @@ function wgWizStep2() {
             <input type="checkbox" id="wgWizAutoStart" checked>
             Tunnel nach Erstellung automatisch starten + beim Boot aktivieren
         </label>
+        <label class="form-check" style="margin-top:4px">
+            <input type="checkbox" id="wgWizAddFw" checked>
+            UDP-Port in PVE-Firewall freigeben (ACCEPT-Regel)
+        </label>
     `;
     document.getElementById('wgWizardFoot').innerHTML = `
         <button class="btn" onclick="wgWizStep1()">&larr; Zurück</button>
@@ -6785,9 +8351,10 @@ function wgWizStep3() {
     _wgWizData.psk = document.getElementById('wgWizPsk').value.trim();
     _wgWizData.keepalive = document.getElementById('wgWizKeepalive').value.trim() || '25';
     _wgWizData.autoStart = document.getElementById('wgWizAutoStart').checked;
+    _wgWizData.addFirewall = document.getElementById('wgWizAddFw').checked;
 
     if (!_wgWizData.peerPublicKey) {
-        toast('Peer Public Key erforderlich', 'error');
+        toast(T.wg_peer_key_required, 'error');
         return;
     }
 
@@ -6824,7 +8391,7 @@ function wgWizStep3() {
     remoteConf += 'AllowedIPs = ' + localIp + '/32\n';
     remoteConf += 'PersistentKeepalive = ' + _wgWizData.keepalive + '\n';
 
-    document.getElementById('wgWizardTitle').textContent = 'Schritt 3/3 — Vorschau';
+    document.getElementById('wgWizardTitle').textContent = T.step3_title;
     document.getElementById('wgWizardBody').innerHTML = `
         <div style="margin-bottom:12px">
             <div style="font-size:.72rem;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:6px">
@@ -6837,13 +8404,27 @@ function wgWizStep3() {
                 <div style="font-size:.72rem;font-weight:600;display:flex;align-items:center;gap:6px">
                     <span style="color:var(--blue)">&#9679;</span> Remote-Config (für die Gegenstelle)
                 </div>
-                <button class="btn btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('wgRemoteConf').textContent);toast('Kopiert!')">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                    Kopieren
-                </button>
+                <div style="display:flex;gap:4px">
+                    <button class="btn btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('wgRemoteConf').textContent);toast('Kopiert!')">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    </button>
+                    <button class="btn btn-sm btn-green" onclick="wgDownloadFile('${_wgWizData.iface}-remote.conf', document.getElementById('wgRemoteConf').textContent)">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        .conf
+                    </button>
+                    <button class="btn btn-sm btn-green" onclick="wgDownloadRemoteScript('${_wgWizData.iface}')">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        .sh
+                    </button>
+                </div>
             </div>
             <pre id="wgRemoteConf" style="background:rgba(64,196,255,.04);border:1px solid rgba(64,196,255,.12);border-radius:8px;padding:10px 12px;font-family:var(--mono);font-size:.7rem;line-height:1.6;overflow-x:auto;margin:0;color:var(--blue)">${remoteConf}</pre>
         </div>
+        ${_wgWizData.addFirewall && _wgWizData.port ? `
+        <div style="margin-top:12px;padding:8px 12px;background:rgba(0,230,118,.04);border:1px solid rgba(0,230,118,.12);border-radius:6px;font-size:.68rem;color:var(--text2);display:flex;align-items:center;gap:8px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <span>PVE-Firewall: <strong>UDP ${_wgWizData.port}</strong> wird automatisch freigegeben (ACCEPT-Regel)</span>
+        </div>` : ''}
     `;
     document.getElementById('wgWizardFoot').innerHTML = `
         <button class="btn" onclick="wgWizStep2()">&larr; Zurück</button>
@@ -6872,12 +8453,16 @@ async function wgWizCreate() {
             post_up: _wgWizData.postUp,
             post_down: _wgWizData.postUp ? _wgWizData.postUp.split('; ').filter(r => !r.startsWith('echo ')).map(r => r.replace(/-A /g, '-D ')).join('; ') : '',
             auto_start: _wgWizData.autoStart ? '1' : '0',
+            add_firewall: _wgWizData.addFirewall ? '1' : '0',
         });
 
         if (res.ok) {
-            toast('Tunnel ' + _wgWizData.iface + ' erstellt' + (res.started ? ' und gestartet' : ''));
+            toast('Tunnel ' + _wgWizData.iface + ' erstellt' + (res.started ? ' und gestartet' : '') + (res.fw_added ? ' + Firewall-Regel' : ''));
             closeModal('wgWizardModal');
             loadWg();
+            if (!res.started) {
+                wgShowRestartBanner(_wgWizData.iface, _wgWizData.iface + ' wurde erstellt — Tunnel starten?');
+            }
         } else {
             toast(res.error || 'Fehler', 'error');
             if (btn) { btn.disabled = false; btn.innerHTML = 'Tunnel erstellen'; }
@@ -6886,6 +8471,580 @@ async function wgWizCreate() {
         toast('Fehler: ' + e.message, 'error');
         if (btn) { btn.disabled = false; btn.innerHTML = 'Tunnel erstellen'; }
     }
+}
+
+// ── WireGuard: Restart Banner ────────────────────────
+function wgShowRestartBanner(iface, msg) {
+    const banner = document.getElementById('wgRestartBanner');
+    const msgEl = document.getElementById('wgRestartMsg');
+    const btn = document.getElementById('wgRestartBtn');
+    if (!banner || !msgEl || !btn) return;
+    msgEl.textContent = msg;
+    btn.onclick = async () => {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="loading-spinner" style="width:12px;height:12px;border-width:1.5px"></span>';
+        await wgControl(iface, 'restart');
+        banner.style.display = 'none';
+    };
+    banner.style.display = '';
+}
+
+// ── WireGuard: Logs ──────────────────────────────────
+let _wgLogsIface = '';
+
+async function wgShowLogs(iface) {
+    _wgLogsIface = iface;
+    document.getElementById('wgLogsTitle').textContent = iface + ' — Logs';
+    document.getElementById('wgLogsContent').textContent = T.loading;
+    openModal('wgLogsModal');
+    wgRefreshLogs();
+}
+
+async function wgRefreshLogs() {
+    const lines = document.getElementById('wgLogsLines')?.value || 50;
+    const btn = document.getElementById('wgLogsRefreshBtn');
+    if (btn) btn.disabled = true;
+    try {
+        const res = await api('wg-logs&iface=' + _wgLogsIface + '&lines=' + lines);
+        if (res.ok) {
+            let output = res.log || 'Keine Logs vorhanden.';
+            if (res.dmesg) output += '\n\n── dmesg (WireGuard) ──\n' + res.dmesg;
+            const pre = document.getElementById('wgLogsContent');
+            pre.textContent = output;
+            pre.scrollTop = pre.scrollHeight;
+        } else {
+            document.getElementById('wgLogsContent').textContent = res.error || T.error;
+        }
+    } catch (e) {
+        document.getElementById('wgLogsContent').textContent = T.error + ': ' + e.message;
+    }
+    if (btn) btn.disabled = false;
+}
+
+// ── WireGuard: Import Config ─────────────────────────
+async function wgImportOpen() {
+    // Suggest next free interface name
+    const d = await api('wg-list-ifaces');
+    const existing = d.interfaces || [];
+    let n = 0;
+    while (existing.includes('wg' + n)) n++;
+    document.getElementById('wgImportIface').value = 'wg' + n;
+    document.getElementById('wgImportContent').value = '';
+    document.getElementById('wgImportAutoStart').checked = true;
+    document.getElementById('wgImportAddFw').checked = false;
+    openModal('wgImportModal');
+}
+
+function wgImportFileLoad(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        document.getElementById('wgImportContent').value = e.target.result;
+        // Auto-set interface name from filename
+        const name = file.name.replace(/\.conf$/i, '').replace(/[^a-zA-Z0-9]/g, '');
+        if (name) document.getElementById('wgImportIface').value = name;
+        // Auto-check firewall if ListenPort found
+        if (/ListenPort\s*=\s*\d+/.test(e.target.result)) {
+            document.getElementById('wgImportAddFw').checked = true;
+        }
+    };
+    reader.readAsText(file);
+}
+
+async function wgImportSave() {
+    const iface = document.getElementById('wgImportIface').value.trim();
+    const content = document.getElementById('wgImportContent').value.trim();
+    const autoStart = document.getElementById('wgImportAutoStart').checked;
+    const addFw = document.getElementById('wgImportAddFw').checked;
+
+    if (!iface || !content) { toast(T.wg_import_required, 'error'); return; }
+
+    const btn = document.getElementById('wgImportBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="loading-spinner" style="width:12px;height:12px;border-width:1.5px"></span>'; }
+
+    try {
+        const res = await api('wg-import', 'POST', {
+            iface,
+            content,
+            auto_start: autoStart ? '1' : '0',
+            add_firewall: addFw ? '1' : '0',
+        });
+        if (res.ok) {
+            let msg = 'Config ' + iface + ' importiert';
+            if (res.started) msg += ' + gestartet';
+            if (res.fw_added) msg += ' + Firewall';
+            toast(msg);
+            closeModal('wgImportModal');
+            loadWg();
+            if (!res.started) {
+                wgShowRestartBanner(iface, iface + ' importiert — Tunnel starten?');
+            }
+        } else {
+            toast(res.error || T.error, 'error');
+            if (btn) { btn.disabled = false; btn.textContent = T.import_btn; }
+        }
+    } catch (e) {
+        toast(T.error + ': ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = T.import_btn; }
+    }
+}
+
+// ── WireGuard: Download Helper ───────────────────────
+function wgDownloadFile(filename, content) {
+    const blob = new Blob([content], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+
+function wgDownloadRemoteScript(iface) {
+    const conf = document.getElementById('wgRemoteConf')?.textContent
+        || document.getElementById('wgPeerConfPre')?.textContent || '';
+    if (!conf) { toast(T.no_config, 'error'); return; }
+    let s = '#!/bin/bash\n';
+    s += '# WireGuard Peer Setup — Generated by FloppyOps Lite\n';
+    s += 'set -e\n';
+    s += 'IFACE="' + iface + '"\n';
+    s += 'CONF="/etc/wireguard/${IFACE}.conf"\n\n';
+    s += 'if [ "$(id -u)" -ne 0 ]; then echo "Bitte als root ausfuehren!"; exit 1; fi\n\n';
+    s += 'EXISTING=$(ls /etc/wireguard/*.conf 2>/dev/null)\n';
+    s += 'if [ -n "$EXISTING" ]; then\n';
+    s += '    echo ""\n';
+    s += '    echo "Bestehende WireGuard-Configs:"\n';
+    s += '    for f in $EXISTING; do\n';
+    s += '        NAME=$(basename "$f" .conf)\n';
+    s += '        STATUS=$(systemctl is-active "wg-quick@${NAME}" 2>/dev/null || echo "inactive")\n';
+    s += '        echo "   - ${NAME}.conf  [${STATUS}]"\n';
+    s += '    done\n';
+    s += '    echo ""\n';
+    s += '    if [ -f "$CONF" ]; then\n';
+    s += '        read -p "${CONF} existiert. Ueberschreiben? (j/N): " OW\n';
+    s += '        if [ "$OW" != "j" ] && [ "$OW" != "J" ]; then echo "Abgebrochen."; exit 0; fi\n';
+    s += '        systemctl stop "wg-quick@${IFACE}" 2>/dev/null || true\n';
+    s += '    fi\n';
+    s += 'fi\n\n';
+    s += 'if ! command -v wg &>/dev/null; then\n';
+    s += '    echo ">> WireGuard wird installiert..."\n';
+    s += '    apt-get update -qq && apt-get install -y -qq wireguard >/dev/null\n';
+    s += 'fi\n\n';
+    s += 'cat > "$CONF" << \'WGEOF\'\n';
+    s += conf + '\n';
+    s += 'WGEOF\n\n';
+    s += 'chmod 600 "$CONF"\n';
+    s += 'systemctl enable "wg-quick@${IFACE}"\n';
+    s += 'systemctl start "wg-quick@${IFACE}"\n\n';
+    s += 'echo ""\n';
+    s += 'echo "WireGuard ${IFACE} konfiguriert und gestartet!"\n';
+    s += 'wg show "${IFACE}"\n';
+    wgDownloadFile('wg-setup-' + iface + '.sh', s);
+}
+
+async function wgEditPeerOpen(iface, pubkey) {
+    try {
+        const res = await api('wg-config&iface=' + iface);
+        if (!res.ok) { toast(res.error || 'Fehler', 'error'); return; }
+        // Extract the [Peer] block matching this public key
+        const blocks = res.config.split(/(?=\[Peer\])/i);
+        let block = '';
+        for (const b of blocks) { if (b.includes(pubkey)) { block = b; break; } }
+
+        const get = (key) => { const m = block.match(new RegExp(key + '\\s*=\\s*(.+)')); return m ? m[1].trim() : ''; };
+        const nameMatch = block.match(/^#\s*(.+)/m);
+
+        const body = document.getElementById('wgEditPeerBody');
+        body.innerHTML = `
+            <input type="hidden" id="wgepIface" value="${iface}">
+            <input type="hidden" id="wgepOldPub" value="${pubkey}">
+            <div class="form-group">
+                <label class="form-label">Peer-Name</label>
+                <input class="form-input" id="wgepName" value="${nameMatch ? nameMatch[1].trim() : ''}" placeholder="z.B. Laptop, Büro-Router">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Public Key</label>
+                <input class="form-input" id="wgepPub" value="${pubkey}" style="font-size:.7rem" readonly>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Endpoint</label>
+                    <input class="form-input" id="wgepEndpoint" value="${get('Endpoint')}" placeholder="IP:Port (leer = kein)">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">PersistentKeepalive</label>
+                    <input class="form-input" id="wgepKeepalive" type="number" value="${get('PersistentKeepalive') || '25'}">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">AllowedIPs</label>
+                <input class="form-input" id="wgepAllowed" value="${get('AllowedIPs')}" placeholder="10.10.30.0/24">
+            </div>
+            <div class="form-group">
+                <label class="form-label">PresharedKey</label>
+                <input class="form-input" id="wgepPsk" value="${get('PresharedKey')}" style="font-size:.68rem" placeholder="(optional)">
+            </div>
+        `;
+        document.getElementById('wgEditPeerTitle').textContent = (nameMatch ? nameMatch[1].trim() : 'Peer') + ' bearbeiten';
+        openModal('wgEditPeerModal');
+    } catch (e) { toast('Fehler: ' + e.message, 'error'); }
+}
+
+async function wgEditPeerSave() {
+    const iface = document.getElementById('wgepIface').value;
+    const oldPub = document.getElementById('wgepOldPub').value;
+    const name = document.getElementById('wgepName').value.trim();
+    const endpoint = document.getElementById('wgepEndpoint').value.trim();
+    const keepalive = document.getElementById('wgepKeepalive').value.trim();
+    const allowed = document.getElementById('wgepAllowed').value.trim();
+    const psk = document.getElementById('wgepPsk').value.trim();
+
+    if (!allowed) { toast(T.allowed_ips_required, 'error'); return; }
+
+    const btn = document.getElementById('wgEditPeerSaveBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="loading-spinner" style="width:12px;height:12px;border-width:1.5px"></span>'; }
+
+    try {
+        const res = await api('wg-update-peer', 'POST', {
+            iface, public_key: oldPub, name, endpoint, keepalive, allowed_ips: allowed, psk
+        });
+        if (res.ok) {
+            toast(T.peer_updated);
+            closeModal('wgEditPeerModal');
+            loadWg();
+            wgShowRestartBanner(iface, iface + ' — Peer geändert. Restart empfohlen.');
+        } else {
+            toast(res.error || T.error, 'error');
+            if (btn) { btn.disabled = false; btn.textContent = T.save; }
+        }
+    } catch (e) {
+        toast(T.error + ': ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = T.save; }
+    }
+}
+
+async function wgDownloadPeerScript(iface) {
+    try {
+        const res = await api('wg-config&iface=' + iface);
+        if (!res.ok) { toast(res.error || 'Config nicht gefunden', 'error'); return; }
+        let s = '#!/bin/bash\n';
+        s += '# WireGuard Setup — Generated by FloppyOps Lite\n';
+        s += 'set -e\n';
+        s += 'IFACE="' + iface + '"\n';
+        s += 'CONF="/etc/wireguard/${IFACE}.conf"\n\n';
+        s += 'if [ "$(id -u)" -ne 0 ]; then echo "Bitte als root ausfuehren!"; exit 1; fi\n\n';
+        s += 'EXISTING=$(ls /etc/wireguard/*.conf 2>/dev/null)\n';
+        s += 'if [ -n "$EXISTING" ]; then\n';
+        s += '    echo ""\n';
+        s += '    echo "Bestehende WireGuard-Configs:"\n';
+        s += '    for f in $EXISTING; do\n';
+        s += '        NAME=$(basename "$f" .conf)\n';
+        s += '        STATUS=$(systemctl is-active "wg-quick@${NAME}" 2>/dev/null || echo "inactive")\n';
+        s += '        echo "   - ${NAME}.conf  [${STATUS}]"\n';
+        s += '    done\n';
+        s += '    echo ""\n';
+        s += '    if [ -f "$CONF" ]; then\n';
+        s += '        read -p "${CONF} existiert. Ueberschreiben? (j/N): " OW\n';
+        s += '        if [ "$OW" != "j" ] && [ "$OW" != "J" ]; then echo "Abgebrochen."; exit 0; fi\n';
+        s += '        systemctl stop "wg-quick@${IFACE}" 2>/dev/null || true\n';
+        s += '    fi\n';
+        s += 'fi\n\n';
+        s += 'if ! command -v wg &>/dev/null; then\n';
+        s += '    echo ">> WireGuard wird installiert..."\n';
+        s += '    apt-get update -qq && apt-get install -y -qq wireguard >/dev/null\n';
+        s += 'fi\n\n';
+        s += 'cat > "$CONF" << \'WGEOF\'\n';
+        s += res.config + '\n';
+        s += 'WGEOF\n\n';
+        s += 'chmod 600 "$CONF"\n';
+        s += 'systemctl enable "wg-quick@${IFACE}"\n';
+        s += 'systemctl start "wg-quick@${IFACE}"\n\n';
+        s += 'echo ""\n';
+        s += 'echo "WireGuard ${IFACE} konfiguriert und gestartet!"\n';
+        s += 'wg show "${IFACE}"\n';
+        wgDownloadFile('wg-setup-' + iface + '.sh', s);
+    } catch (e) { toast('Fehler: ' + e.message, 'error'); }
+}
+
+async function wgDownloadConf(iface) {
+    try {
+        const res = await api('wg-config&iface=' + iface);
+        if (res.ok) {
+            wgDownloadFile(iface + '.conf', res.config);
+        } else {
+            toast(res.error || 'Config nicht gefunden', 'error');
+        }
+    } catch (e) { toast('Fehler: ' + e.message, 'error'); }
+}
+
+// ── WireGuard: Add Peer Wizard ───────────────────────
+let _wgPeerData = {};
+
+async function wgAddPeerOpen(iface) {
+    _wgPeerData = { iface };
+
+    // Fetch server info + generate keys in parallel
+    const [info, keys] = await Promise.all([
+        api('wg-server-info&iface=' + iface),
+        api('wg-genkeys')
+    ]);
+
+    if (!info.ok) { toast(info.error || 'Server-Info nicht verfügbar', 'error'); return; }
+
+    _wgPeerData.serverPubKey = info.public_key || '';
+    _wgPeerData.serverPort = info.listen_port || 0;
+    _wgPeerData.serverAddress = info.address || '';
+    _wgPeerData.publicIp = info.public_ip || '';
+    _wgPeerData.suggestedIp = info.suggested_ip || '';
+    _wgPeerData.peerPrivKey = keys.private_key || '';
+    _wgPeerData.peerPubKey = keys.public_key || '';
+    _wgPeerData.psk = keys.preshared_key || '';
+
+    wgAddPeerStep1();
+    openModal('wgAddPeerModal');
+}
+
+function _wgSubnetFromAddr(addr) {
+    return addr ? addr.replace(/\.\d+\//, '.0/') : '';
+}
+
+function wgAddPeerStep1() {
+    const d = _wgPeerData;
+    document.getElementById('wgAddPeerTitle').textContent = T.step1of2;
+    document.getElementById('wgAddPeerBody').innerHTML = `
+        <div style="background:rgba(0,230,118,.04);border:1px solid rgba(0,230,118,.12);border-radius:6px;padding:8px 12px;margin-bottom:14px;font-size:.68rem;color:var(--text2)">
+            <strong>${d.iface}</strong> &mdash; Server: ${d.serverAddress || '?'} | Port: ${d.serverPort || 'random'}
+        </div>
+        <div class="form-group">
+            <label class="form-label">${T.peer_name}</label>
+            <input class="form-input" id="wgPeerName" value="${d.peerName || ''}" placeholder="z.B. Laptop, Büro-Router, Handy">
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label">${T.peer_tunnel_ip}</label>
+                <input class="form-input" id="wgPeerIp" value="${d.peerIp || d.suggestedIp}" placeholder="10.10.30.2/24">
+                <div class="form-hint">Tunnel-IP die der Peer bekommt</div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">${T.peer_dns}</label>
+                <input class="form-input" id="wgPeerDns" value="${d.peerDns || '1.1.1.1, 8.8.8.8'}" placeholder="1.1.1.1">
+                <div class="form-hint">DNS-Server für den Peer (optional)</div>
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">${T.peer_routes}</label>
+            <input class="form-input" id="wgPeerRoutes" value="${d.peerRoutes || _wgSubnetFromAddr(d.serverAddress)}" placeholder="10.10.30.0/24, 10.10.10.0/24">
+            <div class="form-hint">Netzwerke die der Peer über den Tunnel erreichen soll (AllowedIPs in der Peer-Config)</div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label">${T.server_endpoint}</label>
+                <input class="form-input" id="wgPeerEndpoint" value="${d.peerEndpoint || (d.publicIp ? d.publicIp + ':' + (d.serverPort || 51820) : '')}" placeholder="203.0.113.1:51820">
+                <div class="form-hint">Öffentliche IP:Port dieses Servers</div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">${T.keepalive}</label>
+                <input class="form-input" id="wgPeerKeepalive" type="number" value="${d.keepalive || 25}" placeholder="25">
+            </div>
+        </div>
+        <div style="border:1px solid var(--border-subtle);border-radius:6px;padding:10px 12px;margin-top:4px">
+            <div style="font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Keys (auto-generiert)</div>
+            <div class="form-row" style="gap:8px">
+                <div class="form-group" style="flex:1">
+                    <label class="form-label" style="font-size:.62rem">${T.private_key}</label>
+                    <input class="form-input" id="wgPeerPrivKey" value="${d.peerPrivKey}" style="font-size:.65rem" readonly>
+                </div>
+                <div class="form-group" style="flex:1">
+                    <label class="form-label" style="font-size:.62rem">${T.public_key}</label>
+                    <input class="form-input" id="wgPeerPubKey" value="${d.peerPubKey}" style="font-size:.65rem" readonly>
+                </div>
+            </div>
+        </div>
+    `;
+    document.getElementById('wgAddPeerFoot').innerHTML = `
+        <button class="btn" onclick="closeModal('wgAddPeerModal')">${T.back}</button>
+        <button class="btn btn-accent" onclick="wgAddPeerStep2()">${T.next} &rarr;</button>
+    `;
+}
+
+function wgAddPeerStep2() {
+    const d = _wgPeerData;
+    d.peerName = document.getElementById('wgPeerName').value.trim();
+    d.peerIp = document.getElementById('wgPeerIp').value.trim();
+    d.peerDns = document.getElementById('wgPeerDns').value.trim();
+    d.peerRoutes = document.getElementById('wgPeerRoutes').value.trim();
+    d.peerEndpoint = document.getElementById('wgPeerEndpoint').value.trim();
+    d.keepalive = document.getElementById('wgPeerKeepalive').value.trim() || '25';
+    d.peerPrivKey = document.getElementById('wgPeerPrivKey').value.trim();
+    d.peerPubKey = document.getElementById('wgPeerPubKey').value.trim();
+
+    if (!d.peerIp || !d.peerPubKey) {
+        toast(T.wg_tunnel_fields_required, 'error');
+        return;
+    }
+
+    // Build peer WireGuard config
+    let peerConf = '[Interface]\n';
+    if (d.peerName) peerConf += '# ' + d.peerName + '\n';
+    peerConf += 'PrivateKey = ' + d.peerPrivKey + '\n';
+    peerConf += 'Address = ' + d.peerIp + '\n';
+    if (d.peerDns) peerConf += 'DNS = ' + d.peerDns + '\n';
+    peerConf += '\n[Peer]\n';
+    peerConf += 'PublicKey = ' + d.serverPubKey + '\n';
+    if (d.psk) peerConf += 'PresharedKey = ' + d.psk + '\n';
+    if (d.peerEndpoint) peerConf += 'Endpoint = ' + d.peerEndpoint + '\n';
+    peerConf += 'AllowedIPs = ' + d.peerRoutes + '\n';
+    peerConf += 'PersistentKeepalive = ' + d.keepalive + '\n';
+
+    // Build setup script
+    const peerIfaceName = d.iface;
+    let script = '#!/bin/bash\n';
+    script += '# ─── WireGuard Peer Setup ───────────────────────\n';
+    script += '# Generated by FloppyOps Lite\n';
+    if (d.peerName) script += '# Peer: ' + d.peerName + '\n';
+    script += '# Server: ' + d.iface + ' @ ' + (d.peerEndpoint || 'unknown') + '\n';
+    script += '# ────────────────────────────────────────────────\n\n';
+    script += 'set -e\n';
+    script += 'IFACE="' + peerIfaceName + '"\n';
+    script += 'CONF="/etc/wireguard/${IFACE}.conf"\n\n';
+    script += '# 0. Root-Check\n';
+    script += 'if [ "$(id -u)" -ne 0 ]; then echo "Bitte als root ausfuehren!"; exit 1; fi\n\n';
+    script += '# 1. Bestehende WireGuard-Configs pruefen\n';
+    script += 'EXISTING=$(ls /etc/wireguard/*.conf 2>/dev/null)\n';
+    script += 'if [ -n "$EXISTING" ]; then\n';
+    script += '    echo ""\n';
+    script += '    echo "⚠  Bestehende WireGuard-Configs gefunden:"\n';
+    script += '    for f in $EXISTING; do\n';
+    script += '        NAME=$(basename "$f" .conf)\n';
+    script += '        STATUS=$(systemctl is-active "wg-quick@${NAME}" 2>/dev/null || echo "inactive")\n';
+    script += '        echo "   - ${NAME}.conf  [${STATUS}]"\n';
+    script += '    done\n';
+    script += '    echo ""\n';
+    script += '    if [ -f "$CONF" ]; then\n';
+    script += '        echo "ACHTUNG: ${CONF} existiert bereits!"\n';
+    script += '        read -p "Ueberschreiben? (j/N): " OVERWRITE\n';
+    script += '        if [ "$OVERWRITE" != "j" ] && [ "$OVERWRITE" != "J" ]; then\n';
+    script += '            echo "Abgebrochen."; exit 0\n';
+    script += '        fi\n';
+    script += '        echo ">> Stoppe bestehenden Tunnel..."\n';
+    script += '        systemctl stop "wg-quick@${IFACE}" 2>/dev/null || true\n';
+    script += '    fi\n';
+    script += 'fi\n\n';
+    script += '# 2. WireGuard installieren\n';
+    script += 'if ! command -v wg &>/dev/null; then\n';
+    script += '    echo ">> WireGuard wird installiert..."\n';
+    script += '    apt-get update -qq && apt-get install -y -qq wireguard >/dev/null\n';
+    script += 'fi\n\n';
+    script += '# 3. Config schreiben\n';
+    script += 'cat > "$CONF" << \'WGEOF\'\n';
+    script += peerConf;
+    script += 'WGEOF\n\n';
+    script += 'chmod 600 "$CONF"\n\n';
+    script += '# 4. Tunnel starten + Autostart\n';
+    script += 'systemctl enable "wg-quick@${IFACE}"\n';
+    script += 'systemctl start "wg-quick@${IFACE}"\n\n';
+    script += 'echo ""\n';
+    script += 'echo "✓ WireGuard Peer konfiguriert und gestartet!"\n';
+    script += 'echo "  Interface: ${IFACE}"\n';
+    script += 'echo "  Tunnel-IP: ' + d.peerIp + '"\n';
+    script += 'echo ""\n';
+    script += 'wg show "${IFACE}"\n';
+
+    // Server-side allowed IPs: just the peer's tunnel IP /32
+    const peerIpOnly = d.peerIp.split('/')[0];
+    d._serverAllowedIps = peerIpOnly + '/32';
+
+    _wgPeerData._peerConf = peerConf;
+    _wgPeerData._script = script;
+
+    document.getElementById('wgAddPeerTitle').textContent = T.step2of2;
+    document.getElementById('wgAddPeerBody').innerHTML = `
+        <div style="margin-bottom:14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                <div style="font-size:.72rem;font-weight:600;display:flex;align-items:center;gap:6px">
+                    <span style="color:var(--green)">&#9679;</span> ${T.peer_config}: ${peerIfaceName}.conf
+                </div>
+                <div style="display:flex;gap:4px">
+                    <button class="btn btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('wgPeerConfPre').textContent);toast('${T.copy_config}!')">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    </button>
+                    <button class="btn btn-sm btn-green" onclick="wgDownloadFile('${peerIfaceName}.conf', document.getElementById('wgPeerConfPre').textContent)">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        .conf
+                    </button>
+                </div>
+            </div>
+            <pre id="wgPeerConfPre" style="background:rgba(0,0,0,.3);border:1px solid var(--border-subtle);border-radius:8px;padding:10px 12px;font-family:var(--mono);font-size:.68rem;line-height:1.6;overflow-x:auto;margin:0;color:var(--text2);max-height:180px">${peerConf}</pre>
+        </div>
+        <div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                <div style="font-size:.72rem;font-weight:600;display:flex;align-items:center;gap:6px">
+                    <span style="color:var(--blue)">&#9679;</span> ${T.setup_script}
+                </div>
+                <div style="display:flex;gap:4px">
+                    <button class="btn btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('wgScriptPre').textContent);toast('${T.copy_script}!')">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    </button>
+                    <button class="btn btn-sm btn-green" onclick="wgDownloadFile('wg-peer-setup.sh', document.getElementById('wgScriptPre').textContent)">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        .sh
+                    </button>
+                </div>
+            </div>
+            <pre id="wgScriptPre" style="background:rgba(64,196,255,.04);border:1px solid rgba(64,196,255,.12);border-radius:8px;padding:10px 12px;font-family:var(--mono);font-size:.65rem;line-height:1.5;overflow-x:auto;margin:0;color:var(--blue);max-height:220px">${script}</pre>
+            <div style="font-size:.62rem;color:var(--text3);margin-top:6px">${T.setup_script_hint}</div>
+        </div>
+    `;
+    document.getElementById('wgAddPeerFoot').innerHTML = `
+        <button class="btn" onclick="wgAddPeerStep1()">&larr; ${T.back}</button>
+        <button class="btn btn-accent" id="wgAddPeerBtn" onclick="wgAddPeerCreate()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+            ${T.add_peer}
+        </button>
+    `;
+}
+
+async function wgAddPeerCreate() {
+    const d = _wgPeerData;
+    const btn = document.getElementById('wgAddPeerBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="loading-spinner" style="width:12px;height:12px;border-width:1.5px"></span>'; }
+
+    try {
+        const res = await api('wg-add-peer', 'POST', {
+            iface: d.iface,
+            peer_public_key: d.peerPubKey,
+            peer_name: d.peerName || '',
+            allowed_ips: d._serverAllowedIps,
+            psk: d.psk,
+            keepalive: d.keepalive,
+        });
+
+        if (res.ok) {
+            toast(T.peer_added + (res.live ? ' (live)' : ''));
+            closeModal('wgAddPeerModal');
+            loadWg();
+            wgShowRestartBanner(d.iface, d.iface + ' — Peer hinzugefügt. Restart empfohlen.');
+        } else {
+            toast(res.error || 'Fehler', 'error');
+            if (btn) { btn.disabled = false; btn.textContent = T.add_peer; }
+        }
+    } catch (e) {
+        toast('Fehler: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = T.add_peer; }
+    }
+}
+
+async function wgRemovePeer(iface, pubkey) {
+    if (!await appConfirm(T.confirm_remove_peer, T.confirm_remove_peer)) return;
+    try {
+        const res = await api('wg-remove-peer', 'POST', { iface, public_key: pubkey });
+        if (res.ok) {
+            toast(T.peer_removed);
+            loadWg();
+        } else {
+            toast(res.error || 'Fehler', 'error');
+        }
+    } catch (e) { toast('Fehler: ' + e.message, 'error'); }
 }
 
 // ┌──────────────────────────────────────────────────────────┐
@@ -7113,13 +9272,18 @@ async function loadFwTemplates() {
             ? `<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:3px">${assigned.map(a => `<span style="font-size:.55rem;background:rgba(34,197,94,.12);color:var(--green);padding:1px 5px;border-radius:3px">${a.type === 'qemu' ? 'VM' : 'CT'} ${a.vmid}</span>`).join('')}</div>`
             : '';
         const borderColor = assigned.length > 0 ? 'rgba(34,197,94,.25)' : 'var(--border-subtle)';
-        html += `<div style="background:var(--bg);border:1px solid ${borderColor};border-radius:var(--radius);padding:16px;cursor:pointer;transition:border-color .15s,box-shadow .15s" onmouseenter="this.style.borderColor='var(--accent)';this.style.boxShadow='0 0 0 1px var(--accent)'" onmouseleave="this.style.borderColor='${borderColor}';this.style.boxShadow='none'" onclick="fwShowTemplate('${t.id}')">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                <span style="color:var(--accent)">${icon}</span>
-                <div style="display:flex;gap:4px;align-items:center">${badge}<span style="font-size:.55rem;color:var(--text3);font-family:var(--mono);background:rgba(255,255,255,.04);padding:1px 5px;border-radius:3px">${ruleCount}</span></div>
+        html += `<div style="background:var(--bg);border:1px solid ${borderColor};border-radius:var(--radius);padding:10px 12px;cursor:pointer;transition:border-color .15s" onmouseenter="this.style.borderColor='var(--accent)'" onmouseleave="this.style.borderColor='${borderColor}'" onclick="fwShowTemplate('${t.id}')">
+            <div style="display:flex;align-items:center;gap:8px">
+                <span style="color:var(--accent);flex-shrink:0">${icon}</span>
+                <div style="flex:1;min-width:0">
+                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+                        <span style="font-size:.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.name}</span>
+                        ${badge}
+                        <span style="font-size:.52rem;color:var(--text3);font-family:var(--mono);margin-left:auto;flex-shrink:0">${ruleCount}</span>
+                    </div>
+                    <div style="font-size:.64rem;color:var(--text3);line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.description}</div>
+                </div>
             </div>
-            <div style="font-size:.82rem;font-weight:600;margin-bottom:4px;line-height:1.3">${t.name}</div>
-            <div style="font-size:.68rem;color:var(--text3);line-height:1.4">${t.description}</div>
             ${assignedHtml}
         </div>`;
     });
@@ -7627,36 +9791,46 @@ document.addEventListener('keydown', e => {
 // │              Init: App-Start + Updates-Tab                │
 // └──────────────────────────────────────────────────────────┘
 loadStats();
+loadDashboardVms();
 setInterval(loadStats, 4000);
+setInterval(loadDashboardVms, 30000);
 // Restore tab from URL hash (after all functions are defined)
 if (location.hash && location.hash.length > 1) {
     const h = location.hash.substring(1);
     // Map old tab names to new grouped tabs + sub-tabs
     const tabMap = { fail2ban: ['security','fail2ban'], firewall: ['security','firewall'], portscan: ['security','portscan'],
-        nginx: ['network','nginx'], wireguard: ['network','wireguard'], zfs: ['system','zfs'], updates: ['system','updates'] };
-    if (tabMap[h]) { switchTab(tabMap[h][0]); switchSubTab(tabMap[h][0], tabMap[h][1]); }
+        nginx: ['network','nginx'], wireguard: ['network','wireguard'], updates: 'system' };
+    if (tabMap[h] && Array.isArray(tabMap[h])) { switchTab(tabMap[h][0]); switchSubTab(tabMap[h][0], tabMap[h][1]); }
+    else if (tabMap[h]) { switchTab(tabMap[h]); }
     else if (document.querySelector('.nav-tab[data-tab="' + h + '"]')) { switchTab(h); }
+    // Ensure sub-tab data loads for grouped tabs opened via hash
+    if (h === 'network') switchSubTab('network', 'wireguard');
 }
 
 // ═══ Updates Tab ════════════════════════════════════
 async function loadUpdates() {
+    // Load all checks in parallel
+    const [repo, app, sys] = await Promise.all([
+        api('repo-check').catch(() => null),
+        api('update-check').catch(() => null),
+        api('apt-check').catch(() => null),
+    ]);
+
     // Repo check
     try {
-        const repo = await api('repo-check');
         const banner = document.getElementById('updRepoBanner');
-        if (repo.warning) banner.style.display = 'block';
+        if (repo && repo.warning) banner.style.display = 'block';
         else banner.style.display = 'none';
     } catch(e) {}
 
     // App update check
     try {
-        const app = await api('update-check');
         const el = document.getElementById('appUpdateInfo');
         if (app.ok) {
             let html = '<div style="display:flex;flex-direction:column;gap:6px">';
-            html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Installiert:</span><span style="font-family:var(--mono);font-weight:600">v' + app.local_version + '</span></div>';
-            html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Verfügbar:</span><span style="font-family:var(--mono)">v' + app.remote_version + '</span></div>';
-            html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Update-Methode:</span><span>' + (app.is_git ? 'Git (git pull)' : 'Download (GitHub)') + '</span></div>';
+            html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">' + T.installed_label + ':</span><span style="font-family:var(--mono);font-weight:600">v' + app.local_version + '</span></div>';
+            html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">' + T.available_label + ':</span><span style="font-family:var(--mono)">v' + app.remote_version + '</span></div>';
+            html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">' + T.update_method + ':</span><span>' + (app.is_git ? 'Git (git pull)' : 'Download (GitHub)') + '</span></div>';
             if (app.update_available) {
                 html += '<div style="margin-top:6px;padding:8px 12px;background:rgba(64,196,255,.06);border:1px solid rgba(64,196,255,.15);border-radius:6px;display:flex;align-items:center;gap:8px">';
                 html += '<span style="color:var(--blue);font-weight:600">v' + app.remote_version + ' verfügbar</span>';
@@ -7671,7 +9845,7 @@ async function loadUpdates() {
 
     // System updates — simple status
     try {
-        const sys = await api('apt-check');
+        if (!sys) throw new Error('no data');
         const countEl = document.getElementById('updCount');
         const iconEl = document.getElementById('updStatusIcon');
         const textEl = document.getElementById('updStatusText');
@@ -7685,12 +9859,12 @@ async function loadUpdates() {
         if (sys.count === 0) {
             iconEl.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
             iconEl.style.background = 'rgba(40,167,69,.1)';
-            textEl.textContent = 'System ist aktuell'; textEl.style.color = 'var(--green)';
+            textEl.textContent = T.system_up_to_date; textEl.style.color = 'var(--green)';
             subEl.textContent = ''; document.getElementById('btnAptUpgrade').style.display = 'none';
         } else {
             iconEl.innerHTML = '<span style="font-size:1.1rem;font-weight:700;color:var(--accent)">' + sys.count + '</span>';
             iconEl.style.background = 'rgba(255,89,0,.1)';
-            textEl.textContent = sys.count + ' Updates verfügbar'; textEl.style.color = 'var(--accent)';
+            textEl.textContent = sys.count + ' ' + T.updates_available; textEl.style.color = 'var(--accent)';
             const pve = sys.updates.filter(u => u.name.startsWith('pve-') || u.name.startsWith('proxmox-') || u.name.startsWith('qemu'));
             subEl.textContent = (pve.length ? pve.length + ' PVE, ' : '') + (sys.count - pve.length) + ' System';
             document.getElementById('btnAptUpgrade').style.display = '';
@@ -7698,44 +9872,40 @@ async function loadUpdates() {
         // Dashboard update card
         const dashUpd = document.getElementById('sUpdates');
         if (dashUpd) { dashUpd.textContent = sys.count; dashUpd.style.color = sys.count > 0 ? 'var(--accent)' : 'var(--green)'; }
-    } catch(e) { const t = document.getElementById('updStatusText'); if(t) t.textContent = 'Fehler'; }
+    } catch(e) { const t = document.getElementById('updStatusText'); if(t) t.textContent = T.error; }
 
     // Repos
     try {
-        const repo = await api('repo-check');
         const el = document.getElementById('repoList');
         const warnEl = document.getElementById('repoWarning');
         const warnText = document.getElementById('repoWarningText');
         const subBadge = document.getElementById('repoSubBadge');
-        const addBtn = document.getElementById('btnRepoAddNoSub');
 
         // Subscription badge
         if (repo.has_subscription) {
-            subBadge.style.display = ''; subBadge.textContent = 'Subscription aktiv';
+            subBadge.style.display = ''; subBadge.textContent = T.sub_active;
             subBadge.style.background = 'rgba(40,167,69,.1)'; subBadge.style.color = 'var(--green)';
         } else {
-            subBadge.style.display = ''; subBadge.textContent = 'Keine Subscription';
+            subBadge.style.display = ''; subBadge.textContent = T.no_subscription;
             subBadge.style.background = 'rgba(255,193,7,.1)'; subBadge.style.color = 'var(--yellow)';
         }
 
         // Warnings
         if (repo.enterprise_active && repo.no_sub_active) {
             warnEl.style.display = 'flex';
-            warnText.textContent = 'Enterprise und No-Subscription gleichzeitig aktiv — kann zu Konflikten führen. Nur eins aktivieren!';
+            warnText.textContent = T.repo_warn_both;
         } else if (repo.enterprise_active && !repo.has_subscription) {
             warnEl.style.display = 'flex';
-            warnText.textContent = 'Enterprise-Repo aktiv ohne Subscription — Updates werden fehlschlagen!';
+            warnText.textContent = T.repo_warn_no_sub;
         } else if (repo.has_subscription && !repo.enterprise_active) {
             warnEl.style.display = 'flex';
-            warnText.textContent = 'Subscription vorhanden aber Enterprise-Repo deaktiviert — kein Zugang zu Enterprise-Updates.';
+            warnText.textContent = T.repo_warn_no_enterprise;
         } else if (!repo.no_sub_active && !repo.enterprise_active) {
             warnEl.style.display = 'flex';
-            warnText.textContent = 'Kein PVE-Repository aktiv — keine Proxmox-Updates möglich!';
+            warnText.textContent = T.repo_warn_none;
         } else {
             warnEl.style.display = 'none';
         }
-
-        addBtn.style.display = 'none'; // not needed anymore, standard repos always shown
 
         function repoRow(r, hasSub) {
             const isEnt = r.components.includes('enterprise');
@@ -7751,9 +9921,9 @@ async function loadUpdates() {
             html += '<div style="flex:1;min-width:0">';
             html += '<div style="font-size:.76rem;font-weight:600;display:flex;align-items:center;gap:6px">' + label;
             if (r._standard) html += ' <span style="font-size:.5rem;padding:1px 5px;border-radius:3px;background:rgba(255,89,0,.08);color:var(--accent)">PVE</span>';
-            if (isEnt && !hasSub && r.active) html += ' <span style="font-size:.5rem;padding:1px 5px;border-radius:3px;background:rgba(220,53,69,.1);color:var(--red)">keine Lizenz</span>';
-            if (isTest && r.active) html += ' <span style="font-size:.5rem;padding:1px 5px;border-radius:3px;background:rgba(255,193,7,.1);color:var(--yellow)">Vorsicht</span>';
-            if (missing) html += ' <span style="font-size:.5rem;padding:1px 5px;border-radius:3px;background:var(--surface-solid);color:var(--text3)">nicht eingerichtet</span>';
+            if (isEnt && !hasSub && r.active) html += ' <span style="font-size:.5rem;padding:1px 5px;border-radius:3px;background:rgba(220,53,69,.1);color:var(--red)">' + T.no_license + '</span>';
+            if (isTest && r.active) html += ' <span style="font-size:.5rem;padding:1px 5px;border-radius:3px;background:rgba(255,193,7,.1);color:var(--yellow)">' + T.caution + '</span>';
+            if (missing) html += ' <span style="font-size:.5rem;padding:1px 5px;border-radius:3px;background:var(--surface-solid);color:var(--text3)">' + T.not_configured + '</span>';
             html += '</div>';
             if (desc) html += '<div style="font-size:.64rem;color:var(--text3)">' + desc + '</div>';
             if (r.url && !missing) html += '<div style="font-family:var(--mono);font-size:.58rem;color:var(--text3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + r.url + ' ' + r.suite + '</div>';
@@ -7769,7 +9939,7 @@ async function loadUpdates() {
         // Other repos (separator)
         const others = repo.other_repos || [];
         if (others.length) {
-            html += '<div style="padding:6px 16px;font-size:.64rem;font-weight:600;color:var(--text3);background:rgba(0,0,0,.1)">Weitere Repositories</div>';
+            html += '<div style="padding:6px 16px;font-size:.64rem;font-weight:600;color:var(--text3);background:rgba(0,0,0,.1)">' + T.other_repos + '</div>';
             others.forEach(r => { r._label = r.components; r._desc = ''; html += repoRow(r, repo.has_subscription); });
         }
         el.innerHTML = html;
@@ -7804,36 +9974,36 @@ async function loadUpdates() {
 
 async function aptRefresh() {
     const btn = document.getElementById('btnAptRefresh');
-    btn.disabled = true; btn.innerHTML = '<span class="spinner-small"></span> Prüfe...';
+    btn.disabled = true; btn.innerHTML = '<span class="spinner-small"></span> ' + T.checking;
     try {
         await api('apt-refresh', 'POST');
         await loadUpdates();
-    } catch(e) { toast('Fehler: ' + e.message, 'error'); }
-    btn.disabled = false; btn.innerHTML = 'Prüfen';
+    } catch(e) { toast(T.error + ': ' + e.message, 'error'); }
+    btn.disabled = false; btn.innerHTML = T.check_btn;
 }
 
 async function aptUpgrade() {
-    if (!confirm('Alle System-Updates jetzt installieren?')) return;
+    if (!await appConfirm(T.system_update, T.confirm_install_all)) return;
     const btn = document.getElementById('btnAptUpgrade');
     const outEl = document.getElementById('updOutput');
     btn.disabled = true; btn.innerHTML = '<span class="spinner-small"></span> Installiere...';
-    outEl.style.display = 'block'; outEl.textContent = 'apt dist-upgrade läuft...';
+    outEl.style.display = 'block'; outEl.textContent = T.apt_running;
     try {
         const res = await api('apt-upgrade', 'POST');
         outEl.textContent = res.output + (res.autoremove ? '\n\nautoremove:\n' + res.autoremove : '');
-        if (res.ok) toast('Updates installiert');
-        else toast('Update fehlgeschlagen', 'error');
+        if (res.ok) toast(T.updates_installed);
+        else toast(T.update_failed, 'error');
         await loadUpdates();
-    } catch(e) { toast('Fehler: ' + e.message, 'error'); outEl.textContent = e.message; }
+    } catch(e) { toast(T.error + ': ' + e.message, 'error'); outEl.textContent = e.message; }
     btn.disabled = false; btn.innerHTML = 'Alle Updates installieren';
 }
 
 async function appUpdate() {
     try {
         const res = await api('update-pull', 'POST');
-        if (res.ok) { toast('Update erfolgreich — Seite wird neu geladen'); setTimeout(() => location.reload(), 1500); }
-        else toast('Update fehlgeschlagen: ' + (res.output || ''), 'error');
-    } catch(e) { toast('Fehler: ' + e.message, 'error'); }
+        if (res.ok) { toast(T.update_success_reload); setTimeout(() => location.reload(), 1500); }
+        else toast(T.update_failed + ': ' + (res.output || ''), 'error');
+    } catch(e) { toast(T.error + ': ' + e.message, 'error'); }
 }
 
 async function repoToggle(file, enable, component) {
@@ -7842,16 +10012,8 @@ async function repoToggle(file, enable, component) {
         if (file) data.file = file; else data.component = component;
         const res = await api('repo-toggle', 'POST', data);
         if (res.ok) { toast(res.output || (enable ? 'Aktiviert' : 'Deaktiviert')); loadUpdates(); }
-        else toast(res.error || 'Fehler', 'error');
-    } catch(e) { toast('Fehler: ' + e.message, 'error'); }
-}
-
-async function repoAddNoSub() {
-    try {
-        const res = await api('repo-add-nosub', 'POST');
-        if (res.ok) { toast('No-Subscription Repository hinzugefügt'); loadUpdates(); }
-        else toast(res.error || 'Fehler', 'error');
-    } catch(e) { toast('Fehler: ' + e.message, 'error'); }
+        else toast(res.error || T.error, 'error');
+    } catch(e) { toast(T.error + ': ' + e.message, 'error'); }
 }
 
 let _appAutoTimer = null;
@@ -7869,8 +10031,8 @@ async function saveAppAutoUpdate() {
     const hour = document.getElementById('appAutoHour').value;
     try {
         const res = await api('app-auto-update-save', 'POST', { enabled: enabled ? '1' : '0', day, hour });
-        if (res.ok) toast(enabled ? 'App Auto-Update gespeichert' : 'App Auto-Update deaktiviert');
-    } catch(e) { toast('Fehler: ' + e.message, 'error'); }
+        if (res.ok) toast(enabled ? T.app_autoupdate_saved : T.app_autoupdate_disabled);
+    } catch(e) { toast(T.error + ': ' + e.message, 'error'); }
 }
 
 let _autoUpdateTimer = null;
@@ -7892,9 +10054,9 @@ async function saveAutoUpdate() {
         if (res.ok) {
             const dayNames = ['täglich','Mo','Di','Mi','Do','Fr','Sa','So'];
             document.getElementById('autoUpdateStatus').textContent = enabled ? dayNames[res.day] + ' ' + String(res.hour).padStart(2,'0') + ':00' : '';
-            toast(enabled ? 'Auto-Update gespeichert' : 'Auto-Update deaktiviert');
+            toast(enabled ? T.autoupdate_saved : T.autoupdate_disabled);
         }
-    } catch(e) { toast('Fehler: ' + e.message, 'error'); }
+    } catch(e) { toast(T.error + ': ' + e.message, 'error'); }
 }
 </script>
 

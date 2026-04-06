@@ -1,5 +1,6 @@
 <style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@400;600;700;800;900&display=swap');
+@font-face { font-family: 'Outfit'; src: url('../public/fonts/outfit-latin.woff2') format('woff2'); font-weight: 300 900; font-display: swap; }
+@font-face { font-family: 'JetBrains Mono'; src: url('../public/fonts/jetbrains-mono-latin.woff2') format('woff2'); font-weight: 300 700; font-display: swap; }
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--bg:#050810;--accent:#ff5900;--surface:rgba(17,24,39,.55);--border:rgba(255,255,255,.05);--text:#e8eaed;--text2:#9aa0a6;--text3:#5f6368}
 html,body{height:100%}
@@ -153,4 +154,3 @@ body::after{
     font-family:'JetBrains Mono',monospace;
 }
 </style>
-

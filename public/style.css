@@ -1,5 +1,6 @@
 <style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
+@font-face { font-family: 'Outfit'; src: url('fonts/outfit-latin.woff2') format('woff2'); font-weight: 300 900; font-display: swap; }
+@font-face { font-family: 'JetBrains Mono'; src: url('fonts/jetbrains-mono-latin.woff2') format('woff2'); font-weight: 300 700; font-display: swap; }
 
 :root {
     --bg: #050810;
@@ -245,7 +246,6 @@ body::after {
     background: linear-gradient(90deg, var(--accent), #ff8a3d);
 }
 .progress-bar.green { background: linear-gradient(90deg, #00c853, var(--green)); }
-.progress-bar.red { background: linear-gradient(90deg, #ff1744, var(--red)); }
 .progress-bar.blue { background: linear-gradient(90deg, #0091ea, var(--blue)); }
 
 /* ── Section Headers ────────────────────────────────── */
@@ -323,16 +323,8 @@ body::after {
 .tag-green { background: var(--green-dim); color: var(--green); }
 .tag-red { background: var(--red-dim); color: var(--red); }
 .tag-yellow { background: var(--yellow-dim); color: var(--yellow); }
-.tag-blue { background: var(--blue-dim); color: var(--blue); }
 .tag-accent { background: var(--accent-dim); color: var(--accent); }
 .tag-muted { background: rgba(255,255,255,.04); color: var(--text3); }
-
-.ip-tag {
-    font-family: var(--mono);
-    font-size: .78rem;
-    font-weight: 500;
-    color: var(--text);
-}
 
 /* ── Buttons ────────────────────────────────────────── */
 .btn {
@@ -685,14 +677,26 @@ body::after {
     font-size: .85rem;
 }
 
-/* ── Skeleton Loading ───────────────────────────────── */
-.skeleton {
-    background: linear-gradient(90deg, rgba(255,255,255,.03) 25%, rgba(255,255,255,.06) 50%, rgba(255,255,255,.03) 75%);
-    background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
-    border-radius: var(--radius-sm);
+/* ── Spinners ──────────────────────────────────────── */
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,.15);
+    border-top-color: var(--accent, #40c4ff);
+    border-radius: 50%;
+    animation: spin .6s linear infinite;
 }
-@keyframes shimmer { to { background-position: -200% 0; } }
+.spinner-small {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid rgba(255,255,255,.12);
+    border-top-color: var(--accent, #40c4ff);
+    border-radius: 50%;
+    animation: spin .6s linear infinite;
+}
 
 /* ── Responsive ─────────────────────────────────────── */
 @media (max-width: 768px) {
@@ -711,4 +715,3 @@ body::after {
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.08); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.15); }
 </style>
-

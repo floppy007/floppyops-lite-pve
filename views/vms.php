@@ -1,6 +1,6 @@
 <?php
 /**
- * FloppyOps Lite — Vms View
+ * FloppyOps Lite PVE — Vms View
  * VMs & Containers tab — list all VMs/CTs with clone functionality
  * 
  * Included by index.php — do not call directly.
@@ -33,5 +33,4 @@
                 </div>
             </div>
         </div>
-
 

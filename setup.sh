@@ -1,9 +1,9 @@
 #!/bin/bash
 #
-# FloppyOps Lite — Setup Script
-# https://github.com/floppy007/floppyops-lite
+# FloppyOps Lite PVE — Setup Script
+# https://github.com/floppy007/floppyops-lite-pve
 #
-# Installs the FloppyOps Lite Panel on a Proxmox VE host.
+# Installs the FloppyOps Lite PVE Panel on a Proxmox VE host.
 # Manages: Fail2ban, Nginx Proxy, WireGuard VPN, ZFS
 #
 # Usage:
@@ -28,7 +28,7 @@ INSTALL_DIR="/var/www/server-admin"
 DOMAIN=""
 SKIP_SSL=false
 STEP=0
-TOTAL_STEPS=8
+TOTAL_STEPS=7
 
 # ── Parse Arguments ───────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -37,7 +37,7 @@ while [[ $# -gt 0 ]]; do
         --dir)     INSTALL_DIR="$2"; shift 2 ;;
         --no-ssl)  SKIP_SSL=true; shift ;;
         --help|-h)
-            echo "FloppyOps Lite — Setup"
+            echo "FloppyOps Lite PVE — Setup"
             echo ""
             echo "Usage: bash setup.sh [OPTIONS]"
             echo ""
@@ -66,8 +66,8 @@ echo ""
 echo -e "${BLUE}${BOLD}"
 echo "  ┌────────────────────────────────────────────┐"
 echo "  │                                            │"
-echo "  │     FloppyOps Lite                    │"
-echo "  │     Setup Script v1.1                      │"
+echo "  │     FloppyOps Lite PVE                    │"
+echo "  │     Setup Script v1.0                      │"
 echo "  │                                            │"
 echo "  └────────────────────────────────────────────┘"
 echo -e "${NC}"
@@ -146,6 +146,17 @@ L() {
             nginx_label)      echo "Nginx Proxy";;
             zfs_label)        echo "ZFS";;
             wg_label)         echo "WireGuard";;
+            install_module)   echo "Installieren?";;
+            install_failed)   echo "konnte nicht installiert werden";;
+            url_label)        echo "URL";;
+            login_label)      echo "Login";;
+            app_label)        echo "App";;
+            config_label)     echo "Config";;
+            vhost_label)      echo "vHost";;
+            sudoers_label)    echo "Sudoers";;
+            log_label)        echo "Log";;
+            change_pw_now)    echo "Passwort in config.php sofort aendern!";;
+            whitelist_hint)   echo "IP-Whitelist im nginx vHost anpassen!";;
             *)                echo "$1";;
         esac
     else
@@ -210,6 +221,17 @@ L() {
             nginx_label)      echo "Nginx Proxy";;
             zfs_label)        echo "ZFS";;
             wg_label)         echo "WireGuard";;
+            install_module)   echo "Install?";;
+            install_failed)   echo "could not be installed";;
+            url_label)        echo "URL";;
+            login_label)      echo "Login";;
+            app_label)        echo "App";;
+            config_label)     echo "Config";;
+            vhost_label)      echo "vHost";;
+            sudoers_label)    echo "Sudoers";;
+            log_label)        echo "Log";;
+            change_pw_now)    echo "Change password in config.php immediately!";;
+            whitelist_hint)   echo "Adjust IP whitelist in nginx vHost!";;
             *)                echo "$1";;
         esac
     fi
@@ -237,15 +259,11 @@ MOD_ZFS=true
 MOD_WIREGUARD=true
 
 echo ""
-echo -e "  ${BOLD}Module:${NC}"
-echo -e "    ${GREEN}•${NC} Fail2ban     — Brute-Force Schutz + Ban-Verwaltung"
-echo -e "    ${GREEN}•${NC} Nginx Proxy  — Reverse Proxy + SSL (Let's Encrypt)"
-echo -e "    ${GREEN}•${NC} ZFS          — Pools, Datasets, Snapshots, Auto-Snapshots"
-echo -e "    ${GREEN}•${NC} WireGuard    — VPN Tunnel Verwaltung + Wizard"
+echo -e "  ${BOLD}$(L select_modules):${NC}"
 echo ""
-echo -e "  Alle Module installieren? [J/n] \c"
+echo -e "  $(L install_all) [$([ "$SETUPLANG" = "de" ] && echo "J/n" || echo "Y/n")] \c"
 read -r allmod </dev/tty 2>/dev/null || allmod="j"
-if [[ "$allmod" == "n" || "$allmod" == "N" ]]; then
+if [[ "$allmod" =~ ^[nN]$ ]]; then
     echo ""
     for mod_name in "Fail2ban:MOD_FAIL2BAN:Brute-Force Schutz + Ban-Verwaltung" \
                     "Nginx Proxy:MOD_NGINX:Reverse Proxy + SSL (Let's Encrypt)" \
@@ -253,13 +271,13 @@ if [[ "$allmod" == "n" || "$allmod" == "N" ]]; then
                     "WireGuard:MOD_WIREGUARD:VPN Tunnel Verwaltung + Wizard"; do
         IFS=':' read -r label var desc <<< "$mod_name"
         echo -e "  ${CYAN}[?]${NC} ${BOLD}${label}${NC} — ${DIM}${desc}${NC}"
-        echo -e "      Installieren? [J/n] \c"
+        echo -e "      $(L install_module) [$([ "$SETUPLANG" = "de" ] && echo "J/n" || echo "Y/n")] \c"
         read -r yn </dev/tty 2>/dev/null || yn="j"
-        if [[ "$yn" == "n" || "$yn" == "N" ]]; then
+        if [[ "$yn" =~ ^[nN]$ ]]; then
             eval "$var=false"
-            echo -e "      ${DIM}→ Uebersprungen${NC}"
+            echo -e "      ${DIM}→ $(L skipped)${NC}"
         else
-            echo -e "      ${GREEN}→ Wird installiert${NC}"
+            echo -e "      ${GREEN}→ $(L installing)${NC}"
         fi
     done
 fi
@@ -272,10 +290,10 @@ ${MOD_ZFS:+${GREEN}ZFS${NC} }\
 ${MOD_WIREGUARD:+${GREEN}WireGuard${NC} }"
 
 # ══════════════════════════════════════════════════════════
-# STEP 1: Abhaengigkeiten
+# STEP 1: Dependencies
 # ══════════════════════════════════════════════════════════
 
-step "Abhaengigkeiten installieren"
+step "$(L step_deps)"
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -288,30 +306,40 @@ if [[ -z "$PHP_VERSION" ]]; then
     PHP_VERSION=$(apt-cache show php-fpm 2>/dev/null | grep -oP 'Depends:.*php(\d+\.\d+)-fpm' | head -1 | grep -oP '\d+\.\d+' || echo "8.2")
 fi
 
-info "PHP-Version: ${BOLD}$PHP_VERSION${NC}"
+info "$(L php_ver): ${BOLD}$PHP_VERSION${NC}"
 
 PACKAGES=(
     nginx
     "php${PHP_VERSION}-fpm"
+    "php${PHP_VERSION}-json"
     openssl
 )
 [[ "$MOD_FAIL2BAN" == "true" ]] && PACKAGES+=(fail2ban)
-[[ "$MOD_NGINX" == "true" ]] && PACKAGES+=(certbot python3-certbot-nginx)
+[[ "$MOD_NGINX" == "true" ]] && PACKAGES+=(certbot python3-certbot-nginx python3-certbot-dns-cloudflare python3-pip)
 [[ "$MOD_WIREGUARD" == "true" ]] && PACKAGES+=(wireguard wireguard-tools)
 
 for pkg in "${PACKAGES[@]}"; do
     if dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
-        detail "$pkg (bereits installiert)"
+        detail "$pkg ($(L already))"
     else
-        if apt-get install -y -qq "$pkg" >> /tmp/csa-setup.log 2>&1; then
+        if apt-get install -y -qq "$pkg" >> /tmp/floppyops-lite-setup.log 2>&1; then
             ok "$pkg"
         else
-            warn "$pkg konnte nicht installiert werden"
+            warn "$pkg — $(L install_failed)"
         fi
     fi
 done
 
 ok "$(L pkgs_done)"
+
+# Hetzner DNS plugin (not in apt, install via pip)
+if [[ "$MOD_NGINX" == "true" ]]; then
+    if pip3 install --break-system-packages certbot-dns-hetzner >> /tmp/floppyops-lite-setup.log 2>&1; then
+        ok "certbot-dns-hetzner (pip)"
+    else
+        warn "certbot-dns-hetzner — $(L install_failed)"
+    fi
+fi
 
 # ══════════════════════════════════════════════════════════
 # STEP 2: App-Dateien
@@ -340,31 +368,30 @@ fi
 
 # Config
 if [[ -f "$INSTALL_DIR/config.php" ]]; then
-    info "config.php existiert bereits, wird nicht ueberschrieben"
+    info "config.php $(L exists_keep)"
 else
     if [[ -f "$SCRIPT_DIR/config.example.php" ]]; then
         cp "$SCRIPT_DIR/config.example.php" "$INSTALL_DIR/config.php"
-        ok "config.php erstellt (aus config.example.php)"
+        ok "config.php $(L created)"
+        warn "$(L change_pw)"
     else
         cat > "$INSTALL_DIR/config.php" <<'PHPEOF'
 <?php
-define('AUTH_METHOD', 'auto');
+define('ADMIN_USER', 'admin');
+define('ADMIN_PASS', 'CHANGE_ME');
 define('NGINX_SITES_DIR', '/etc/nginx/sites-enabled');
 define('NGINX_SITES_AVAILABLE', '/etc/nginx/sites-available');
 define('F2B_LOG', '/var/log/fail2ban.log');
-define('APP_NAME', 'FloppyOps Lite');
+define('APP_NAME', 'FloppyOps Lite PVE');
 PHPEOF
-        ok "config.php erstellt"
+        ok "config.php $(L created_new)"
+        warn "$(L change_pw)"
     fi
 fi
-
-# Data directory for firewall templates etc.
-mkdir -p "$INSTALL_DIR/data"
 
 # Permissions
 chown -R www-data:www-data "$INSTALL_DIR"
 chmod 640 "$INSTALL_DIR/config.php"
-chmod 750 "$INSTALL_DIR/data"
 ok "$(L perms_set)"
 
 # ══════════════════════════════════════════════════════════
@@ -375,8 +402,8 @@ step "$(L step_php)"
 
 PHP_SOCK=$(find /run/php/ -name "php*-fpm.sock" 2>/dev/null | head -1 || echo "/run/php/php${PHP_VERSION}-fpm.sock")
 
-systemctl enable "php${PHP_VERSION}-fpm" >> /tmp/csa-setup.log 2>&1 || true
-systemctl start "php${PHP_VERSION}-fpm" >> /tmp/csa-setup.log 2>&1 || true
+systemctl enable "php${PHP_VERSION}-fpm" >> /tmp/floppyops-lite-setup.log 2>&1 || true
+systemctl start "php${PHP_VERSION}-fpm" >> /tmp/floppyops-lite-setup.log 2>&1 || true
 
 if [[ -S "$PHP_SOCK" ]]; then
     ok "$(L fpm_running) ($PHP_SOCK)"
@@ -434,99 +461,9 @@ NGINX
 
 ln -sf "$VHOST_FILE" "/etc/nginx/sites-enabled/$VHOST_NAME"
 
-# Remove default site to avoid conflicts
-rm -f /etc/nginx/sites-enabled/default 2>/dev/null
-
-# Cloudflare Proxy Support (real_ip)
-echo ""
-if [[ "$LANG_CODE" == "de" ]]; then
-    echo -e "  ${BOLD}Nutzt du Cloudflare als DNS-Proxy?${NC}"
-    echo -e "  Wenn ja, wird Nginx so konfiguriert, dass die echte Client-IP"
-    echo -e "  hinter dem Cloudflare-Proxy erkannt wird (für IP-Whitelists, Logs etc.)."
-else
-    echo -e "  ${BOLD}Do you use Cloudflare as DNS proxy?${NC}"
-    echo -e "  If yes, Nginx will be configured to detect the real client IP"
-    echo -e "  behind the Cloudflare proxy (for IP whitelists, logs etc.)."
-fi
-echo -e "  Cloudflare Proxy einrichten? [j/N] \c"
-read -r cfproxy </dev/tty 2>/dev/null || cfproxy="n"
-if [[ "$cfproxy" == "j" || "$cfproxy" == "J" || "$cfproxy" == "y" || "$cfproxy" == "Y" ]]; then
-    cat > /etc/nginx/conf.d/cloudflare-realip.conf <<'CFEOF'
-# Cloudflare Real IP — erkennt echte Client-IP hinter CF Proxy
-# Aktualisieren: https://www.cloudflare.com/ips-v4 + ips-v6
-set_real_ip_from 173.245.48.0/20;
-set_real_ip_from 103.21.244.0/22;
-set_real_ip_from 103.22.200.0/22;
-set_real_ip_from 103.31.4.0/22;
-set_real_ip_from 141.101.64.0/18;
-set_real_ip_from 108.162.192.0/18;
-set_real_ip_from 190.93.240.0/20;
-set_real_ip_from 188.114.96.0/20;
-set_real_ip_from 197.234.240.0/22;
-set_real_ip_from 198.41.128.0/17;
-set_real_ip_from 162.158.0.0/15;
-set_real_ip_from 104.16.0.0/13;
-set_real_ip_from 104.24.0.0/14;
-set_real_ip_from 172.64.0.0/13;
-set_real_ip_from 131.0.72.0/22;
-set_real_ip_from 2400:cb00::/32;
-set_real_ip_from 2606:4700::/32;
-set_real_ip_from 2803:f800::/32;
-set_real_ip_from 2405:b500::/32;
-set_real_ip_from 2405:8100::/32;
-set_real_ip_from 2a06:98c0::/29;
-set_real_ip_from 2c0f:f248::/32;
-real_ip_header CF-Connecting-IP;
-CFEOF
-    ok "Cloudflare Real IP konfiguriert"
-else
-    info "Cloudflare Proxy übersprungen"
-fi
-
-nginx -t >> /tmp/csa-setup.log 2>&1 || die "$(L nginx_invalid)"
+nginx -t >> /tmp/floppyops-lite-setup.log 2>&1 || die "$(L nginx_invalid)"
 systemctl reload nginx
 ok "$(L vhost_created): $VHOST_NAME"
-
-# PVE SSL vHost on port 8443 (external access via PVE certificate)
-if [[ -f /etc/pve/local/pve-ssl.pem ]]; then
-    cat > /etc/nginx/sites-available/server-admin-ssl <<SSLNGINX
-server {
-    listen 8443 ssl;
-    server_name _;
-    root ${INSTALL_DIR};
-    index index.php;
-
-    ssl_certificate /etc/pve/local/pve-ssl.pem;
-    ssl_certificate_key /etc/pve/local/pve-ssl.key;
-
-    # Redirect HTTP → HTTPS on same port
-    error_page 497 301 =301 https://\\\$host:\\\$server_port\\\$request_uri;
-
-    # IP-Whitelist — anpassen!
-    # allow DEINE.IP.HIER;
-    # deny all;
-
-    location / {
-        try_files \$uri \$uri/ /index.php?\$query_string;
-    }
-
-    location ~ \.php\$ {
-        include fastcgi_params;
-        fastcgi_pass unix:${PHP_SOCK};
-        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
-        fastcgi_read_timeout 30;
-    }
-
-    location ~ /\.ht { deny all; }
-    location ~ config\.php { deny all; }
-}
-SSLNGINX
-    ln -sf /etc/nginx/sites-available/server-admin-ssl /etc/nginx/sites-enabled/server-admin-ssl
-    nginx -t >> /tmp/csa-setup.log 2>&1 && systemctl reload nginx
-    ok "SSL vHost on port 8443 (PVE certificate)"
-else
-    info "No PVE certificate found — skipping port 8443 vHost"
-fi
 
 # ══════════════════════════════════════════════════════════
 # STEP 5: SSL + Nginx Proxy Management
@@ -542,10 +479,10 @@ if [[ "$MOD_NGINX" == "true" ]]; then
         info "$(L ssl_skip_domain)"
         detail "$(L ssl_hint)"
     else
-        if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email >> /tmp/csa-setup.log 2>&1; then
-            ok "SSL-Zertifikat fuer $DOMAIN aktiviert"
+        if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email >> /tmp/floppyops-lite-setup.log 2>&1; then
+            ok "$(L ssl_activated) $DOMAIN"
         else
-            warn "SSL fehlgeschlagen — Domain muss auf diesen Server zeigen"
+            warn "$(L ssl_failed)"
         fi
     fi
 
@@ -577,8 +514,8 @@ RLEOF
     ok "$(L proxy_mgmt)"
 
     # Certbot timer
-    systemctl enable certbot.timer >> /tmp/csa-setup.log 2>&1 || true
-    systemctl start certbot.timer >> /tmp/csa-setup.log 2>&1 || true
+    systemctl enable certbot.timer >> /tmp/floppyops-lite-setup.log 2>&1 || true
+    systemctl start certbot.timer >> /tmp/floppyops-lite-setup.log 2>&1 || true
     ok "$(L certbot_renew)"
 else
     info "$(L nginx_label) — $(L skipped)"
@@ -592,7 +529,7 @@ if [[ "$MOD_WIREGUARD" == "true" ]]; then
         for wgconf in /etc/wireguard/wg*.conf; do
             [[ -f "$wgconf" ]] && chmod 640 "$wgconf" && chown root:www-data "$wgconf"
         done
-        ok "WireGuard-Config fuer Panel lesbar"
+        ok "$(L wg_readable)"
     else
         ok "$(L wg_no_tunnels)"
     fi
@@ -602,8 +539,8 @@ fi
 
 # --- Fail2ban ---
 if [[ "$MOD_FAIL2BAN" == "true" ]]; then
-    systemctl enable fail2ban >> /tmp/csa-setup.log 2>&1 || true
-    systemctl start fail2ban >> /tmp/csa-setup.log 2>&1 || true
+    systemctl enable fail2ban >> /tmp/floppyops-lite-setup.log 2>&1 || true
+    systemctl start fail2ban >> /tmp/floppyops-lite-setup.log 2>&1 || true
     ok "$(L f2b_activated)"
 else
     info "$(L f2b_label) — $(L skipped)"
@@ -620,7 +557,7 @@ else
     info "$(L zfs_label) — $(L skipped)"
 fi
 
-nginx -t >> /tmp/csa-setup.log 2>&1 && systemctl reload nginx
+nginx -t >> /tmp/floppyops-lite-setup.log 2>&1 && systemctl reload nginx
 ok "$(L nginx_reloaded)"
 
 # ══════════════════════════════════════════════════════════
@@ -630,7 +567,7 @@ ok "$(L nginx_reloaded)"
 step "$(L step_sudoers)"
 
 {
-echo "# FloppyOps Lite Panel"
+echo "# FloppyOps Lite PVE Panel"
 if [[ "$MOD_FAIL2BAN" == "true" ]]; then
     echo "www-data ALL=(root) NOPASSWD: /usr/bin/fail2ban-client status *"
     echo "www-data ALL=(root) NOPASSWD: /usr/bin/fail2ban-client status"
@@ -679,55 +616,22 @@ echo "www-data ALL=(root) NOPASSWD: /usr/bin/systemctl restart php*-fpm"
 echo "www-data ALL=(root) NOPASSWD: /usr/bin/apt-get update"
 echo "www-data ALL=(root) NOPASSWD: /usr/bin/apt-get dist-upgrade *"
 echo "www-data ALL=(root) NOPASSWD: /usr/bin/apt-get autoremove *"
-} > /etc/sudoers.d/server-admin
-chmod 440 /etc/sudoers.d/server-admin
+} > /etc/sudoers.d/floppyops-lite
+chmod 440 /etc/sudoers.d/floppyops-lite
 ok "$(L sudoers_created)"
 
 # ══════════════════════════════════════════════════════════
-# STEP 7: PVE Dashboard Integration
-# ══════════════════════════════════════════════════════════
-
-step "PVE Dashboard Integration"
-
-PVE_TPL="/usr/share/pve-manager/index.html.tpl"
-PVE_JS_DIR="/usr/share/pve-manager/js"
-PVE_MARKER="<!-- FloppyOps Lite Integration -->"
-
-if [[ -f "$PVE_TPL" ]] && [[ -f "$SCRIPT_DIR/pve-integration/floppyops.js" ]]; then
-    cp "$SCRIPT_DIR/pve-integration/floppyops.js" "$PVE_JS_DIR/floppyops.js"
-    chmod 644 "$PVE_JS_DIR/floppyops.js"
-
-    if ! grep -q "$PVE_MARKER" "$PVE_TPL"; then
-        sed -i "/<\/head>/i\\    $PVE_MARKER\n    <script type=\"text/javascript\" src=\"/pve2/js/floppyops.js\"></script>" "$PVE_TPL"
-    fi
-
-    # apt hook to restore after PVE updates
-    cat > /etc/apt/apt.conf.d/99-floppyops-pve << 'HOOK'
-DPkg::Post-Invoke {
-    "if [ -f /usr/share/pve-manager/js/floppyops.js ] && ! grep -q 'FloppyOps Lite Integration' /usr/share/pve-manager/index.html.tpl 2>/dev/null; then sed -i '/<\\/head>/i\\    <!-- FloppyOps Lite Integration -->\\n    <script type=\"text/javascript\" src=\"/pve2/js/floppyops.js\"></script>' /usr/share/pve-manager/index.html.tpl && systemctl restart pveproxy 2>/dev/null; fi";
-};
-HOOK
-    chmod 644 /etc/apt/apt.conf.d/99-floppyops-pve
-
-    systemctl restart pveproxy >> /tmp/csa-setup.log 2>&1 || true
-    ok "FloppyOps Button in PVE Toolbar"
-    ok "apt-Hook fuer PVE-Updates"
-else
-    info "Kein PVE erkannt — Dashboard-Integration uebersprungen"
-fi
-
-# ══════════════════════════════════════════════════════════
-# STEP 8: Abschluss
+# STEP 7: Abschluss
 # ══════════════════════════════════════════════════════════
 
 step "$(L step_finish)"
 
 # Verify
 VERIFY_OK=true
-[[ ! -f "$INSTALL_DIR/index.php" ]]   && fail "index.php fehlt" && VERIFY_OK=false
-[[ ! -f "$INSTALL_DIR/config.php" ]]  && fail "config.php fehlt" && VERIFY_OK=false
-[[ ! -S "$PHP_SOCK" ]]                && fail "PHP-FPM laeuft nicht" && VERIFY_OK=false
-systemctl is-active --quiet nginx     || { fail "Nginx laeuft nicht"; VERIFY_OK=false; }
+[[ ! -f "$INSTALL_DIR/index.php" ]]   && fail "index.php $(L not_found_in) $INSTALL_DIR" && VERIFY_OK=false
+[[ ! -f "$INSTALL_DIR/config.php" ]]  && fail "config.php $(L not_found_in) $INSTALL_DIR" && VERIFY_OK=false
+[[ ! -S "$PHP_SOCK" ]]                && fail "PHP-FPM $(L fpm_fail)" && VERIFY_OK=false
+systemctl is-active --quiet nginx     || { fail "Nginx $(L nginx_invalid)"; VERIFY_OK=false; }
 
 if [[ "$VERIFY_OK" == "true" ]]; then
     ok "$(L checks_ok)"
@@ -740,7 +644,7 @@ if [[ "$VERIFY_OK" == "true" ]]; then
     echo -e "${GREEN}${BOLD}"
     echo "  ┌──────────────────────────────────────────────────┐"
     echo "  │                                                  │"
-    echo "  │   ✓  Installation erfolgreich!                   │"
+    printf "  │   ✓  %-44s │\n" "$(L success)"
     echo "  │                                                  │"
     echo "  └──────────────────────────────────────────────────┘"
     echo -e "${NC}"
@@ -748,37 +652,36 @@ else
     echo -e "${YELLOW}${BOLD}"
     echo "  ┌──────────────────────────────────────────────────┐"
     echo "  │                                                  │"
-    echo "  │   ⚠  Installation mit Warnungen abgeschlossen   │"
+    printf "  │   ⚠  %-44s │\n" "$(L success_warn)"
     echo "  │                                                  │"
     echo "  └──────────────────────────────────────────────────┘"
     echo -e "${NC}"
 fi
 
-echo -e "  ${BOLD}FloppyOps Lite${NC}"
 if [[ -n "$DOMAIN" ]]; then
-    echo -e "  ${CYAN}URL:${NC}      https://$DOMAIN"
+    echo -e "  ${BOLD}FloppyOps Lite PVE${NC}"
+    echo -e "  ${CYAN}$(L url_label):${NC}      https://$DOMAIN"
 else
-    echo -e "  ${CYAN}URL:${NC}      http://$SERVER_IP"
+    echo -e "  ${BOLD}FloppyOps Lite PVE${NC}"
+    echo -e "  ${CYAN}$(L url_label):${NC}      http://$SERVER_IP"
 fi
-if [[ -f /etc/pve/local/pve-ssl.pem ]]; then
-    echo -e "  ${CYAN}SSL:${NC}      https://$SERVER_IP:8443"
-    echo -e "  ${CYAN}PVE:${NC}      FloppyOps Button in PVE Toolbar"
-fi
-echo -e "  ${CYAN}Login:${NC}    PVE root-Benutzer (root / PVE-Passwort)"
+echo -e "  ${CYAN}$(L login_label):${NC}    admin / ${YELLOW}CHANGE_ME${NC}"
 echo ""
-echo -e "  ${BOLD}Dateien${NC}"
-echo -e "  ${CYAN}App:${NC}      $INSTALL_DIR"
-echo -e "  ${CYAN}Config:${NC}   $INSTALL_DIR/config.php"
-echo -e "  ${CYAN}vHost:${NC}    $VHOST_FILE"
-echo -e "  ${CYAN}Sudoers:${NC}  /etc/sudoers.d/server-admin"
-echo -e "  ${CYAN}Log:${NC}      /tmp/csa-setup.log"
+echo -e "  ${BOLD}$(L files)${NC}"
+echo -e "  ${CYAN}$(L app_label):${NC}      $INSTALL_DIR"
+echo -e "  ${CYAN}$(L config_label):${NC}   $INSTALL_DIR/config.php"
+echo -e "  ${CYAN}$(L vhost_label):${NC}    $VHOST_FILE"
+echo -e "  ${CYAN}$(L sudoers_label):${NC}  /etc/sudoers.d/floppyops-lite"
+echo -e "  ${CYAN}$(L log_label):${NC}      /tmp/floppyops-lite-setup.log"
 echo ""
-echo -e "  ${YELLOW}${BOLD}⚠  IP-Whitelist im nginx vHost anpassen!${NC}"
+echo -e "  ${YELLOW}${BOLD}⚠  $(L change_pw_now)${NC}"
+echo -e "  ${YELLOW}${BOLD}⚠  $(L whitelist_hint)${NC}"
 echo ""
 echo -e "  ${DIM}──────────────────────────────────────────────────${NC}"
-echo -e "  ${DIM}Naechste Schritte:${NC}"
-echo -e "  ${DIM}  1. nano $VHOST_FILE → IP-Whitelist${NC}"
-echo -e "  ${DIM}  2. nginx -t && systemctl reload nginx${NC}"
-echo -e "  ${DIM}  3. Im Browser oeffnen und mit PVE-Zugangsdaten einloggen${NC}"
+echo -e "  ${DIM}$(L next_steps):${NC}"
+echo -e "  ${DIM}  1. nano $INSTALL_DIR/config.php → $(L step_pw)${NC}"
+echo -e "  ${DIM}  2. nano $VHOST_FILE → $(L step_whitelist)${NC}"
+echo -e "  ${DIM}  3. $(L step_reload)${NC}"
+echo -e "  ${DIM}  4. $(L step_open)${NC}"
 echo ""
 

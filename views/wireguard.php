@@ -1,6 +1,6 @@
 <?php
 /**
- * FloppyOps Lite — Wireguard View
+ * FloppyOps Lite PVE — Wireguard View
  * WireGuard VPN tab — tunnel status, traffic graph, config editor, new tunnel wizard
  * 
  * Included by index.php — do not call directly.
@@ -91,5 +91,4 @@
 
             <div id="wgGrid" class="jail-grid"></div>
         </div>
-
 

@@ -1,5 +1,5 @@
 /**
- * FloppyOps Lite — Dashboard
+ * FloppyOps Lite PVE — Dashboard
  * Dashboard — load server stats, update UI elements, auto-refresh
  *
  * @requires app.js (api, toast, fmtBytes, pct)
@@ -12,7 +12,7 @@ async function loadStats() {
         document.getElementById('sHostname').textContent = d.hostname;
         document.getElementById('sKernel').textContent = d.kernel;
         document.getElementById('sUptime').textContent = d.uptime.replace('up ', '');
-        document.getElementById('sUptimeSince').textContent = 'seit ' + d.uptime_since;
+        document.getElementById('sUptimeSince').textContent = T.since + ' ' + d.uptime_since;
 
         const loadPct = Math.min(100, Math.round(d.load[0] / d.cpu_cores * 100));
         document.getElementById('sLoad').textContent = d.load[0].toFixed(2);
@@ -68,7 +68,6 @@ async function loadStats() {
         } else {
             badge.style.display = 'none';
         }
-    } catch (e) { console.error('Stats error', e); }
+    } catch (e) { /* stats error */ }
 }
-
 

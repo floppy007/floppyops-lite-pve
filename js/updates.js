@@ -1,5 +1,5 @@
 /**
- * FloppyOps Lite — Updates
+ * FloppyOps Lite PVE — Updates
  * Updates — apt check/upgrade, app version check, repo fix, auto-update settings
  *
  * @requires app.js (api, toast, fmtBytes, pct)
@@ -20,9 +20,9 @@ async function loadUpdates() {
         const el = document.getElementById('appUpdateInfo');
         if (app.ok) {
             let html = '<div style="display:flex;flex-direction:column;gap:6px">';
-            html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Installiert:</span><span style="font-family:var(--mono);font-weight:600">v' + app.local_version + '</span></div>';
-            html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Verfügbar:</span><span style="font-family:var(--mono)">v' + app.remote_version + '</span></div>';
-            html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">Update-Methode:</span><span>' + (app.is_git ? 'Git (git pull)' : 'Download (GitHub)') + '</span></div>';
+            html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">' + T.installed_label + ':</span><span style="font-family:var(--mono);font-weight:600">v' + app.local_version + '</span></div>';
+            html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">' + T.available_label + ':</span><span style="font-family:var(--mono)">v' + app.remote_version + '</span></div>';
+            html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text3)">' + T.update_method + ':</span><span>' + (app.is_git ? 'Git (git pull)' : 'Download (GitHub)') + '</span></div>';
             if (app.update_available) {
                 html += '<div style="margin-top:6px;padding:8px 12px;background:rgba(64,196,255,.06);border:1px solid rgba(64,196,255,.15);border-radius:6px;display:flex;align-items:center;gap:8px">';
                 html += '<span style="color:var(--blue);font-weight:600">v' + app.remote_version + ' verfügbar</span>';
@@ -53,7 +53,7 @@ async function loadUpdates() {
             listEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--green);font-size:.78rem"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;vertical-align:middle"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>System ist aktuell</div>';
             document.getElementById('btnAptUpgrade').style.display = 'none';
         } else {
-            let html = '<table class="data-table"><thead><tr><th>Paket</th><th>Installiert</th><th>Verfügbar</th></tr></thead><tbody>';
+            let html = '<table class="data-table"><thead><tr><th>' + T.package + '</th><th>' + T.installed_label + '</th><th>' + T.available_label + '</th></tr></thead><tbody>';
             sys.updates.forEach(u => {
                 const isPve = u.name.startsWith('proxmox-') || u.name.startsWith('pve-') || u.name.startsWith('ceph');
                 html += '<tr><td style="font-family:var(--mono);font-size:.7rem">' + u.name + (isPve ? ' <span style="font-size:.5rem;padding:1px 4px;border-radius:3px;background:rgba(255,89,0,.1);color:var(--accent)">PVE</span>' : '') + '</td>';
@@ -95,36 +95,36 @@ async function loadUpdates() {
 
 async function aptRefresh() {
     const btn = document.getElementById('btnAptRefresh');
-    btn.disabled = true; btn.innerHTML = '<span class="spinner-small"></span> Prüfe...';
+    btn.disabled = true; btn.innerHTML = '<span class="spinner-small"></span> ' + T.checking;
     try {
         await api('apt-refresh', 'POST');
         await loadUpdates();
-    } catch(e) { toast('Fehler: ' + e.message, 'error'); }
-    btn.disabled = false; btn.innerHTML = 'Prüfen';
+    } catch(e) { toast(T.error + ': ' + e.message, 'error'); }
+    btn.disabled = false; btn.innerHTML = T.check_btn;
 }
 
 async function aptUpgrade() {
-    if (!confirm('Alle System-Updates jetzt installieren?')) return;
+    if (!confirm(T.confirm_install_all)) return;
     const btn = document.getElementById('btnAptUpgrade');
     const outEl = document.getElementById('updOutput');
     btn.disabled = true; btn.innerHTML = '<span class="spinner-small"></span> Installiere...';
-    outEl.style.display = 'block'; outEl.textContent = 'apt dist-upgrade läuft...';
+    outEl.style.display = 'block'; outEl.textContent = T.apt_running;
     try {
         const res = await api('apt-upgrade', 'POST');
         outEl.textContent = res.output + (res.autoremove ? '\n\nautoremove:\n' + res.autoremove : '');
-        if (res.ok) toast('Updates installiert');
-        else toast('Update fehlgeschlagen', 'error');
+        if (res.ok) toast(T.updates_installed);
+        else toast(T.update_failed, 'error');
         await loadUpdates();
-    } catch(e) { toast('Fehler: ' + e.message, 'error'); outEl.textContent = e.message; }
+    } catch(e) { toast(T.error + ': ' + e.message, 'error'); outEl.textContent = e.message; }
     btn.disabled = false; btn.innerHTML = 'Alle Updates installieren';
 }
 
 async function appUpdate() {
     try {
         const res = await api('update-pull', 'POST');
-        if (res.ok) { toast('Update erfolgreich — Seite wird neu geladen'); setTimeout(() => location.reload(), 1500); }
-        else toast('Update fehlgeschlagen: ' + (res.output || ''), 'error');
-    } catch(e) { toast('Fehler: ' + e.message, 'error'); }
+        if (res.ok) { toast(T.update_success_reload); setTimeout(() => location.reload(), 1500); }
+        else toast(T.update_failed + ': ' + (res.output || ''), 'error');
+    } catch(e) { toast(T.error + ': ' + e.message, 'error'); }
 }
 
 async function repoFix() {
@@ -133,8 +133,8 @@ async function repoFix() {
     try {
         const res = await api('repo-fix', 'POST');
         if (res.ok) { toast('Repos korrigiert: ' + res.output.split('\n').join(', ')); await loadUpdates(); }
-        else toast('Fehler', 'error');
-    } catch(e) { toast('Fehler: ' + e.message, 'error'); }
+        else toast(T.error, 'error');
+    } catch(e) { toast(T.error + ': ' + e.message, 'error'); }
     btn.disabled = false; btn.innerHTML = 'Repos fixen';
 }
 
@@ -153,8 +153,8 @@ async function saveAppAutoUpdate() {
     const hour = document.getElementById('appAutoHour').value;
     try {
         const res = await api('app-auto-update-save', 'POST', { enabled: enabled ? '1' : '0', day, hour });
-        if (res.ok) toast(enabled ? 'App Auto-Update gespeichert' : 'App Auto-Update deaktiviert');
-    } catch(e) { toast('Fehler: ' + e.message, 'error'); }
+        if (res.ok) toast(enabled ? T.app_autoupdate_saved : T.app_autoupdate_disabled);
+    } catch(e) { toast(T.error + ': ' + e.message, 'error'); }
 }
 
 let _autoUpdateTimer = null;
@@ -176,9 +176,8 @@ async function saveAutoUpdate() {
         if (res.ok) {
             const dayNames = ['täglich','Mo','Di','Mi','Do','Fr','Sa','So'];
             document.getElementById('autoUpdateStatus').textContent = enabled ? dayNames[res.day] + ' ' + String(res.hour).padStart(2,'0') + ':00' : '';
-            toast(enabled ? 'Auto-Update gespeichert' : 'Auto-Update deaktiviert');
+            toast(enabled ? T.autoupdate_saved : T.autoupdate_disabled);
         }
-    } catch(e) { toast('Fehler: ' + e.message, 'error'); }
+    } catch(e) { toast(T.error + ': ' + e.message, 'error'); }
 }
 </script>
-

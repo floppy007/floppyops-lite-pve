@@ -1,6 +1,6 @@
 <?php
 /**
- * FloppyOps Lite — Nginx View
+ * FloppyOps Lite PVE — Nginx View
  * Nginx Proxy tab — site management, SSL, setup guide with live checks
  * 
  * Included by index.php — do not call directly.
@@ -52,4 +52,3 @@
             </div>
             <div class="site-grid" id="siteGrid"></div>
         </div>
-

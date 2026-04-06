@@ -1,5 +1,5 @@
 /**
- * FloppyOps Lite — Wireguard
+ * FloppyOps Lite PVE — Wireguard
  * WireGuard — tunnel status, live traffic chart, config editor, 3-step wizard
  *
  * @requires app.js (api, toast, fmtBytes, pct)
@@ -130,7 +130,7 @@ async function pollWgTraffic() {
         }
         wgLastBytes = { rx: totalRx, tx: totalTx };
         wgPollCount++;
-    } catch (e) { console.error('WG poll error', e); }
+    } catch (e) { /* poll error */ }
 }
 
 function startWgGraph() {
@@ -252,7 +252,7 @@ async function loadWg() {
                     </div>
                 </div>`;
         });
-    } catch (e) { console.error('WG error', e); }
+    } catch (e) { /* load error */ }
 }
 
 async function showWgConfig(iface) {
@@ -328,7 +328,7 @@ async function wgWizardOpen() {
 }
 
 function wgWizStep1() {
-    document.getElementById('wgWizardTitle').textContent = 'Schritt 1/3 — Tunnel-Grundlagen';
+    document.getElementById('wgWizardTitle').textContent = T.wg_step1_title;
     document.getElementById('wgWizardBody').innerHTML = `
         <div class="form-row">
             <div class="form-group">
@@ -473,7 +473,7 @@ function wgWizStep2() {
         return;
     }
 
-    document.getElementById('wgWizardTitle').textContent = 'Schritt 2/3 — Peer (Gegenstelle)';
+    document.getElementById('wgWizardTitle').textContent = T.wg_step2_title;
     document.getElementById('wgWizardBody').innerHTML = `
         <div class="form-group">
             <label class="form-label">Peer Endpoint <span style="font-size:.55rem;color:var(--text3)">(IP:Port der Gegenstelle)</span></label>
@@ -558,7 +558,7 @@ function wgWizStep3() {
     remoteConf += 'AllowedIPs = ' + localIp + '/32\n';
     remoteConf += 'PersistentKeepalive = ' + _wgWizData.keepalive + '\n';
 
-    document.getElementById('wgWizardTitle').textContent = 'Schritt 3/3 — Vorschau';
+    document.getElementById('wgWizardTitle').textContent = T.wg_step3_title;
     document.getElementById('wgWizardBody').innerHTML = `
         <div style="margin-bottom:12px">
             <div style="font-size:.72rem;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:6px">
@@ -621,5 +621,4 @@ async function wgWizCreate() {
         if (btn) { btn.disabled = false; btn.innerHTML = 'Tunnel erstellen'; }
     }
 }
-
 

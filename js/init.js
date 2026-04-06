@@ -1,5 +1,5 @@
 /**
- * FloppyOps Lite — Init
+ * FloppyOps Lite PVE — Init
  * Initialization — restore saved tab from URL hash, start auto-refresh
  *
  * @requires app.js (api, toast, fmtBytes, pct)
@@ -24,5 +24,4 @@ if (location.hash && location.hash.length > 1) {
         switchTab(savedTab);
     }
 }
-
 
