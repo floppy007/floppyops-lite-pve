@@ -1,9 +1,9 @@
 /**
- * FloppyOps Lite PVE — Zfs
- * ZFS — pools, datasets, snapshots (create/delete/rollback/clone), auto-snapshot config
- *
- * @requires app.js (api, toast, fmtBytes, pct)
+ * FloppyOps Lite — ZFS
+ * ZFS — Pools, Datasets, Snapshots, Auto-Snapshot
  */
+
+let _zfsData = null;
 
 function zfsSwitchTab(tab, btn) {
     document.querySelectorAll('#panel-zfs [id^="zfsTab"]').forEach(el => el.style.display = 'none');
@@ -14,15 +14,20 @@ function zfsSwitchTab(tab, btn) {
 }
 
 async function loadZfs() {
+    // Set active sub-tab button
+    const poolsBtn = document.querySelector('.zfs-sub[data-zfstab="pools"]');
+    if (poolsBtn && !document.querySelector('.zfs-sub[style*="var(--accent)"]')) {
+        zfsSwitchTab('pools', poolsBtn);
+    }
+
+    // Show loading state
+    const poolsEl = document.getElementById('zfsPools');
+    if (poolsEl && !poolsEl.innerHTML) poolsEl.innerHTML = '<div style="padding:12px;color:var(--text3);font-size:.75rem"><span class="loading-spinner" style="width:12px;height:12px;border-width:1.5px;margin-right:6px"></span>Laden...</div>';
+
     try {
-        // Load ZFS + VM names in parallel
-        const [d, vmData] = await Promise.all([
-            api('zfs-status'),
-            _pveVms.length ? Promise.resolve(null) : api('pve-vms')
-        ]);
+        const d = await api('zfs-status');
         if (!d.ok) return;
         _zfsData = d;
-        if (vmData && vmData.ok) _pveVms = vmData.vms;
 
         // Pools
         const poolsEl = document.getElementById('zfsPools');
@@ -111,7 +116,8 @@ async function loadZfs() {
         });
 
         zfsRenderSnaps();
-    } catch (e) { /* load error */ }
+    } catch (e) {
+    }
 }
 
 function zfsRenderSnaps() {
@@ -189,7 +195,7 @@ function zfsRenderSnaps() {
                     (s.dataset.match(/subvol-|vm-|base-/) ?
                         '<button class="btn btn-sm btn-green" onclick="zfsSnapCloneVm(\'' + esc + '\')" title="Als VM/CT clonen" style="padding:1px 4px;font-size:.5rem"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></button>' :
                         '<button class="btn btn-sm" onclick="zfsClone(\'' + esc + '\')" title="Dataset Clone" style="padding:1px 4px;font-size:.5rem"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>') +
-                    '<button class="btn btn-sm btn-red" onclick="zfsDeleteSnap(\'' + esc + '\')" title="Löschen" style="padding:1px 4px;font-size:.5rem"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>' +
+                    '<button class="btn btn-sm btn-red" onclick="zfsDeleteSnap(\'' + esc + '\')" title="' + T.delete + '" style="padding:1px 4px;font-size:.5rem"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>' +
                 '</div></td></tr>';
         });
 
@@ -206,7 +212,7 @@ function zfsRenderSnaps() {
 }
 
 async function zfsInstallAuto() {
-    toast(T.zfs_installing);
+    toast('Installiere zfs-auto-snapshot...');
     try {
         const res = await api('zfs-install-auto', 'POST', {});
         if (res.ok) { toast('zfs-auto-snapshot installiert'); loadZfs(); }
@@ -224,7 +230,7 @@ async function zfsToggleAuto(dataset, enabled) {
 
 async function zfsSetRetention(label, value) {
     const keep = parseInt(value);
-    if (!keep || keep < 1 || keep > 999) { toast(T.retention_range_error, 'error'); return; }
+    if (!keep || keep < 1 || keep > 999) { toast('Wert muss zwischen 1-999 liegen', 'error'); return; }
     try {
         const res = await api('zfs-set-retention', 'POST', { label, keep });
         if (res.ok) toast('Retention ' + label + ' → ' + keep + ' Snapshots');
@@ -233,7 +239,7 @@ async function zfsSetRetention(label, value) {
 }
 
 function zfsCreateSnapModal() {
-    if (!_zfsData || !_zfsData.datasets.length) { toast(T.no_datasets, 'error'); return; }
+    if (!_zfsData || !_zfsData.datasets.length) { toast('Keine Datasets', 'error'); return; }
     const ds = _zfsData.datasets;
     const defaultName = 'manual-' + new Date().toISOString().slice(0,19).replace(/[T:]/g, '-');
     let body = '<div class="form-group"><label class="form-label">Dataset</label>' +
@@ -258,7 +264,7 @@ function zfsCreateSnapModal() {
 async function zfsDoSnap() {
     const dataset = document.getElementById('zfsSnapDs')?.value;
     const name = document.getElementById('zfsSnapName')?.value?.trim();
-    if (!dataset || !name) { toast(T.dataset_name_required, 'error'); return; }
+    if (!dataset || !name) { toast('Dataset und Name erforderlich', 'error'); return; }
     closeModal('zfsSnapModal');
     try {
         const res = await api('zfs-snapshot', 'POST', { dataset, name });
@@ -305,6 +311,8 @@ async function zfsSnapCloneVm(snap) {
     const cfg = config.ok ? config.config : {};
     const cores = cfg.cores || 1;
     const memory = cfg.memory || 2048;
+    const swap = cfg.swap || 0;
+    const onboot = cfg.onboot || 0;
     const srcName = cfg.hostname || cfg.name || typeLabel + '-' + sourceVmid;
 
     let modal = document.getElementById('zfsSnapCloneModal');
@@ -317,12 +325,14 @@ async function zfsSnapCloneVm(snap) {
     }
 
     // Parse network from source config
-    let srcIp = '', srcGw = '', srcBridge = '', srcDns = cfg.nameserver || '';
+    let srcIp = '', srcGw = '', srcBridge = '', srcDns = cfg.nameserver || '', srcIp6 = '', srcGw6 = '';
     const net0 = cfg.net0 || '';
     if (net0) {
         srcIp = (net0.match(/ip=([^,]+)/) || [])[1] || '';
         srcGw = (net0.match(/gw=([^,]+)/) || [])[1] || '';
         srcBridge = (net0.match(/bridge=([^,]+)/) || [])[1] || '';
+        srcIp6 = (net0.match(/ip6=([^,]+)/) || [])[1] || '';
+        srcGw6 = (net0.match(/gw6=([^,]+)/) || [])[1] || '';
     }
 
     document.getElementById('zfsSnapCloneTitle').innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" style="margin-right:6px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' + typeLabel + ' ' + sourceVmid + ' aus Snapshot clonen';
@@ -363,6 +373,10 @@ async function zfsSnapCloneVm(snap) {
                     <label style="font-size:.65rem;color:var(--text3);display:block;margin-bottom:3px">RAM (MB)</label>
                     <input class="form-input" id="zscMem" type="number" value="${memory}" min="128" step="128" style="padding:5px 8px;font-size:.75rem">
                 </div>
+                <div style="flex:1${!isLxc ? ';opacity:.35' : ''}">
+                    <label style="font-size:.65rem;color:var(--text3);display:block;margin-bottom:3px">Swap (MB)</label>
+                    <input class="form-input" id="zscSwap" type="number" value="${swap}" min="0" step="128" style="padding:5px 8px;font-size:.75rem" ${!isLxc ? 'disabled' : ''}>
+                </div>
             </div>
         </div>
 
@@ -380,29 +394,40 @@ async function zfsSnapCloneVm(snap) {
                     <input type="radio" name="zscNetMode" value="disconnect" style="accent-color:var(--accent)" onchange="zscNetModeChange()"> Getrennt
                 </label>
             </div>
-            <div id="zscNetCustomFields" style="display:none">
+            <div id="zscNetCustomFields" style="opacity:.35">
+                <div style="font-size:.58rem;font-weight:600;color:var(--text3);margin-bottom:4px">IPv4</div>
                 <div style="display:flex;gap:8px;margin-bottom:8px">
                     <div style="flex:2">
                         <label style="font-size:.62rem;color:var(--text3);display:block;margin-bottom:2px">IP-Adresse (CIDR)</label>
-                        <input class="form-input" id="zscIp" value="${srcIp}" placeholder="10.10.10.200/24" style="padding:4px 8px;font-size:.72rem;font-family:var(--mono)">
+                        <input class="form-input" id="zscIp" value="${srcIp}" placeholder="10.10.10.200/24" style="padding:4px 8px;font-size:.72rem;font-family:var(--mono)" disabled>
                     </div>
                     <div style="flex:1">
                         <label style="font-size:.62rem;color:var(--text3);display:block;margin-bottom:2px">Gateway</label>
-                        <input class="form-input" id="zscGw" value="${srcGw}" placeholder="10.10.10.1" style="padding:4px 8px;font-size:.72rem;font-family:var(--mono)">
+                        <input class="form-input" id="zscGw" value="${srcGw}" placeholder="10.10.10.1" style="padding:4px 8px;font-size:.72rem;font-family:var(--mono)" disabled>
+                    </div>
+                </div>
+                <div style="font-size:.58rem;font-weight:600;color:var(--text3);margin-bottom:4px;margin-top:8px">IPv6</div>
+                <div style="display:flex;gap:8px;margin-bottom:8px">
+                    <div style="flex:2">
+                        <label style="font-size:.62rem;color:var(--text3);display:block;margin-bottom:2px">IPv6-Adresse (CIDR)</label>
+                        <input class="form-input" id="zscIp6" value="${srcIp6}" placeholder="2a01:4f9::100/64 oder dhcp" style="padding:4px 8px;font-size:.72rem;font-family:var(--mono)" disabled>
+                    </div>
+                    <div style="flex:1">
+                        <label style="font-size:.62rem;color:var(--text3);display:block;margin-bottom:2px">IPv6 Gateway</label>
+                        <input class="form-input" id="zscGw6" value="${srcGw6}" placeholder="fe80::1" style="padding:4px 8px;font-size:.72rem;font-family:var(--mono)" disabled>
                     </div>
                 </div>
                 <div style="display:flex;gap:8px">
                     <div style="flex:1">
                         <label style="font-size:.62rem;color:var(--text3);display:block;margin-bottom:2px">Bridge</label>
-                        <input class="form-input" id="zscBridge" value="${srcBridge}" placeholder="vmbr0" style="padding:4px 8px;font-size:.72rem;font-family:var(--mono)">
+                        <input class="form-input" id="zscBridge" value="${srcBridge}" placeholder="vmbr0" style="padding:4px 8px;font-size:.72rem;font-family:var(--mono)" disabled>
                     </div>
                     <div style="flex:1">
                         <label style="font-size:.62rem;color:var(--text3);display:block;margin-bottom:2px">DNS</label>
-                        <input class="form-input" id="zscDns" value="${srcDns}" placeholder="1.1.1.1" style="padding:4px 8px;font-size:.72rem;font-family:var(--mono)">
+                        <input class="form-input" id="zscDns" value="${srcDns}" placeholder="1.1.1.1" style="padding:4px 8px;font-size:.72rem;font-family:var(--mono)" disabled>
                     </div>
                 </div>
             </div>
-            <div id="zscNetKeepInfo" style="font-family:var(--mono);font-size:.62rem;color:var(--text3)">${srcBridge ? srcBridge + ' &middot; ' + srcIp : 'Keine Netzwerk-Config'}</div>
         </div>
 
         <!-- Optionen -->
@@ -410,23 +435,26 @@ async function zfsSnapCloneVm(snap) {
             <label style="display:flex;align-items:center;gap:6px;font-size:.75rem;cursor:pointer;padding:6px 10px;background:rgba(255,255,255,.02);border:1px solid var(--border-subtle);border-radius:6px">
                 <input type="checkbox" id="zscStart" style="accent-color:var(--accent);width:14px;height:14px"> Nach Clone starten
             </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:.75rem;cursor:pointer;padding:6px 10px;background:rgba(255,255,255,.02);border:1px solid var(--border-subtle);border-radius:6px">
+                <input type="checkbox" id="zscOnboot" ${onboot ? 'checked' : ''} style="accent-color:var(--accent);width:14px;height:14px"> Autostart (Boot)
+            </label>
         </div>
     `;
 
-    // Add network mode change handler
-    if (!window.zscNetModeChange) {
-        window.zscNetModeChange = function() {
-            const mode = document.querySelector('input[name="zscNetMode"]:checked')?.value || 'keep';
-            document.getElementById('zscNetCustomFields').style.display = mode === 'custom' ? '' : 'none';
-            document.getElementById('zscNetKeepInfo').style.display = mode === 'keep' ? '' : 'none';
-            document.getElementById('zscNetKeepLabel').style.borderColor = mode === 'keep' ? 'var(--accent)' : 'var(--border-subtle)';
-            document.getElementById('zscNetCustomLabel').style.borderColor = mode === 'custom' ? 'var(--accent)' : 'var(--border-subtle)';
-            document.getElementById('zscNetDiscLabel').style.borderColor = mode === 'disconnect' ? 'var(--accent)' : 'var(--border-subtle)';
-        };
-    }
+    // Always re-assign handler (modal body is rebuilt each time)
+    window.zscNetModeChange = function() {
+        const mode = document.querySelector('input[name="zscNetMode"]:checked')?.value || 'keep';
+        const fields = document.getElementById('zscNetCustomFields');
+        const enabled = mode === 'custom';
+        fields.style.opacity = enabled ? '1' : '.35';
+        fields.querySelectorAll('input').forEach(i => i.disabled = !enabled);
+        document.getElementById('zscNetKeepLabel').style.borderColor = mode === 'keep' ? 'var(--accent)' : 'var(--border-subtle)';
+        document.getElementById('zscNetCustomLabel').style.borderColor = mode === 'custom' ? 'var(--accent)' : 'var(--border-subtle)';
+        document.getElementById('zscNetDiscLabel').style.borderColor = mode === 'disconnect' ? 'var(--accent)' : 'var(--border-subtle)';
+    };
 
     const btn = document.getElementById('zfsSnapCloneBtn');
-    btn.disabled = false; btn.textContent = T.clone_start;
+    btn.disabled = false; btn.textContent = 'Clone starten';
     openModal('zfsSnapCloneModal');
 }
 
@@ -436,14 +464,16 @@ async function zfsSnapCloneSubmit() {
     const name = document.getElementById('zscName').value.trim();
     const cores = document.getElementById('zscCores').value;
     const memory = document.getElementById('zscMem').value;
+    const swap = document.getElementById('zscSwap')?.value || '';
+    const onboot = document.getElementById('zscOnboot')?.checked ? '1' : '0';
     const autoStart = document.getElementById('zscStart').checked ? '1' : '0';
     const netMode = document.querySelector('input[name="zscNetMode"]:checked')?.value || 'keep';
 
-    if (!newVmid || !name) { toast(T.vmid_name_required, 'error'); return; }
+    if (!newVmid || !name) { toast('VMID und Name erforderlich', 'error'); return; }
 
     const data = {
         snapshot: snap, new_vmid: newVmid, new_name: name,
-        cores, memory, auto_start: autoStart,
+        cores, memory, swap, onboot, auto_start: autoStart,
         net_disconnect: netMode === 'disconnect' ? '1' : '0',
     };
 
@@ -451,6 +481,8 @@ async function zfsSnapCloneSubmit() {
     if (netMode === 'custom') {
         data.new_ip = document.getElementById('zscIp')?.value?.trim() || '';
         data.new_gw = document.getElementById('zscGw')?.value?.trim() || '';
+        data.new_ip6 = document.getElementById('zscIp6')?.value?.trim() || '';
+        data.new_gw6 = document.getElementById('zscGw6')?.value?.trim() || '';
         data.new_bridge = document.getElementById('zscBridge')?.value?.trim() || '';
         data.new_dns = document.getElementById('zscDns')?.value?.trim() || '';
     }
@@ -465,12 +497,12 @@ async function zfsSnapCloneSubmit() {
             closeModal('zfsSnapCloneModal');
             loadPveVms && loadPveVms();
         } else {
-            toast(res.error || T.error, 'error');
-            btn.disabled = false; btn.textContent = T.clone_start;
+            toast(res.error || 'Fehler', 'error');
+            btn.disabled = false; btn.textContent = 'Clone starten';
         }
     } catch (e) {
-        toast(T.error + ': ' + e.message, 'error');
-        btn.disabled = false; btn.textContent = T.clone_start;
+        toast('Fehler: ' + e.message, 'error');
+        btn.disabled = false; btn.textContent = 'Clone starten';
     }
 }
 
@@ -486,10 +518,3 @@ async function zfsClone(snap) {
         else toast(res.output || res.error || 'Fehler', 'error');
     } catch (e) { toast('Fehler: ' + e.message, 'error'); }
 }
-
-// ── WireGuard Graph (Chart.js) ───────────────────────
-const WG_MAX_POINTS = 60;
-let wgChart = null;
-let wgLastBytes = null;
-let wgGraphTimer = null;
-let wgPollCount = 0;

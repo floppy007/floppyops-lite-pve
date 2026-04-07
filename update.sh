@@ -1,117 +1,144 @@
 #!/bin/bash
 #
 # FloppyOps Lite — Update Script
-# Pulls latest code and runs post-update tasks.
+# Aktualisiert eine bestehende Installation auf die neueste Version.
 #
 # Usage:
-#   bash update.sh
+#   bash update.sh                  # Update aus Git (wenn .git vorhanden)
+#   bash update.sh --from /pfad     # Update aus lokalem Verzeichnis
 #
 set -euo pipefail
 
+# ── Colors ────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
-DIM='\033[2m'
 NC='\033[0m'
 
-INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 ok()   { echo -e "  ${GREEN}✓${NC}  $1"; }
-info() { echo -e "  ${CYAN}ℹ${NC}  $1"; }
 warn() { echo -e "  ${YELLOW}⚠${NC}  $1"; }
 fail() { echo -e "  ${RED}✗${NC}  $1"; }
+info() { echo -e "  ${CYAN}ℹ${NC}  $1"; }
 
-echo ""
-echo -e "${CYAN}${BOLD}  FloppyOps Lite — Update${NC}"
-echo -e "${DIM}  $(printf '%.0s─' {1..40})${NC}"
-echo ""
+# ── Defaults ──────────────────────────────────────────────
+INSTALL_DIR="/var/www/server-admin"
+SOURCE_DIR=""
 
-# Must be root
-if [[ $EUID -ne 0 ]]; then
-    fail "Must be run as root"
+# ── Parse Arguments ───────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --from)    SOURCE_DIR="$2"; shift 2 ;;
+        --dir)     INSTALL_DIR="$2"; shift 2 ;;
+        --help|-h)
+            echo "FloppyOps Lite — Update"
+            echo ""
+            echo "Usage: bash update.sh [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --from /pfad   Update aus lokalem Verzeichnis (statt Git)"
+            echo "  --dir /pfad    Installationsverzeichnis (default: /var/www/server-admin)"
+            echo "  --help         Hilfe anzeigen"
+            exit 0
+            ;;
+        *) echo "Unbekannte Option: $1"; exit 1 ;;
+    esac
+done
+
+# ── Pre-Checks ───────────────────────────────────────────
+if [[ ! -f "$INSTALL_DIR/index.php" ]]; then
+    fail "Keine Installation gefunden in $INSTALL_DIR"
+    echo "  Nutze setup.sh fuer die Erstinstallation."
     exit 1
 fi
 
-# Pull latest code
-if [[ -d "$INSTALL_DIR/.git" ]]; then
-    echo -e "  ${BOLD}Pulling latest changes...${NC}"
+OLD_VERSION=$(grep -oP "define\('APP_VERSION',\s*'\\K[^']+" "$INSTALL_DIR/index.php" 2>/dev/null || echo "unbekannt")
+echo ""
+echo -e "${BOLD}FloppyOps Lite — Update${NC}"
+echo -e "Installiert in: ${CYAN}$INSTALL_DIR${NC}"
+echo -e "Aktuelle Version: ${YELLOW}v$OLD_VERSION${NC}"
+echo ""
+
+# ── Update-Methode bestimmen ─────────────────────────────
+if [[ -n "$SOURCE_DIR" ]]; then
+    # Update aus lokalem Verzeichnis
+    if [[ ! -f "$SOURCE_DIR/index.php" ]]; then
+        fail "Keine gueltige Quelle: $SOURCE_DIR/index.php nicht gefunden"
+        exit 1
+    fi
+    info "Update-Quelle: $SOURCE_DIR"
+elif [[ -d "$INSTALL_DIR/.git" ]]; then
+    # Git Pull
+    info "Git-Repository erkannt, fuehre git pull aus..."
     cd "$INSTALL_DIR"
-    git pull origin main 2>&1 | sed 's/^/     /'
-    ok "Code updated"
+    git pull --ff-only 2>&1 | while read -r line; do echo "  $line"; done
+    SOURCE_DIR="$INSTALL_DIR"
+    NEW_VERSION=$(grep -oP "define\('APP_VERSION',\s*'\\K[^']+" "$INSTALL_DIR/index.php" 2>/dev/null || echo "unbekannt")
+    echo ""
+    ok "Update abgeschlossen: v$OLD_VERSION → v$NEW_VERSION"
+    # Bei Git ist alles schon am richtigen Platz, nur Rechte setzen
+    chown -R www-data:www-data "$INSTALL_DIR" 2>/dev/null || true
+    chmod 644 "$INSTALL_DIR/index.php" "$INSTALL_DIR/lang.php" 2>/dev/null || true
+    chmod 644 "$INSTALL_DIR/api/"*.php 2>/dev/null || true
+    chmod 644 "$INSTALL_DIR/js/"*.js 2>/dev/null || true
+    chmod 640 "$INSTALL_DIR/config.php" 2>/dev/null || true
+    chmod 750 "$INSTALL_DIR/data" 2>/dev/null || true
+    exit 0
 else
-    # Download mode
-    echo -e "  ${BOLD}Downloading latest release...${NC}"
-    TMP=$(mktemp -d)
-    curl -sL "https://github.com/floppy007/floppyops-lite/archive/refs/heads/main.tar.gz" | tar xz -C "$TMP" --strip-components=1
-    rsync -a --exclude='config.php' --exclude='data/' --exclude='.git' "$TMP/" "$INSTALL_DIR/"
-    rm -rf "$TMP"
-    ok "Code updated (download)"
+    fail "Kein Git-Repo und kein --from angegeben"
+    echo "  Nutze: bash update.sh --from /pfad/zu/floppyops-lite"
+    exit 1
 fi
 
-NEW_VERSION=$(grep -oP "APP_VERSION.*?'\K[^']+" "$INSTALL_DIR/index.php" 2>/dev/null || echo "unknown")
-echo ""
-echo -e "  ${BOLD}Version: ${GREEN}v${NEW_VERSION}${NC}"
-echo ""
+# ── Dateien kopieren (nur bei --from) ────────────────────
+info "Kopiere Dateien..."
 
-# ── Post-Update Tasks ─────────────────────────────────
-echo -e "  ${BOLD}Post-update tasks...${NC}"
+# PHP Hauptdateien
+cp "$SOURCE_DIR/index.php" "$INSTALL_DIR/index.php"
+cp "$SOURCE_DIR/lang.php" "$INSTALL_DIR/lang.php"
+ok "index.php + lang.php"
 
-# Auth log file
-AUTH_LOG="/var/log/floppyops-lite-auth.log"
-if [[ ! -f "$AUTH_LOG" ]]; then
-    touch "$AUTH_LOG"
-    chown www-data:www-data "$AUTH_LOG"
-    ok "Auth log created ($AUTH_LOG)"
-else
-    info "Auth log exists"
+# API-Module
+if [[ -d "$SOURCE_DIR/api" ]]; then
+    mkdir -p "$INSTALL_DIR/api"
+    cp "$SOURCE_DIR/api/"*.php "$INSTALL_DIR/api/"
+    ok "api/ Module ($(ls "$SOURCE_DIR/api/"*.php | wc -l) Dateien)"
 fi
 
-# Fail2ban jail for panel login
-if command -v fail2ban-client &>/dev/null; then
-    if [[ ! -f /etc/fail2ban/filter.d/floppyops-lite.conf ]]; then
-        cat > /etc/fail2ban/filter.d/floppyops-lite.conf <<'F2BFILTER'
-[Definition]
-failregex = LOGIN FAILED user=.* ip=<HOST>
-ignoreregex =
-F2BFILTER
-        ok "Fail2ban filter created"
-    else
-        info "Fail2ban filter exists"
-    fi
-
-    if [[ ! -f /etc/fail2ban/jail.d/floppyops-lite.conf ]]; then
-        cat > /etc/fail2ban/jail.d/floppyops-lite.conf <<'F2BJAIL'
-[floppyops-lite]
-enabled = true
-filter = floppyops-lite
-logpath = /var/log/floppyops-lite-auth.log
-maxretry = 5
-findtime = 300
-bantime = 900
-F2BJAIL
-        systemctl restart fail2ban 2>/dev/null || true
-        ok "Fail2ban jail created (5 attempts = 15min ban)"
-    else
-        info "Fail2ban jail exists"
-    fi
-else
-    info "Fail2ban not installed, skipping jail"
+# JavaScript-Module
+if [[ -d "$SOURCE_DIR/js" ]]; then
+    mkdir -p "$INSTALL_DIR/js"
+    cp "$SOURCE_DIR/js/"*.js "$INSTALL_DIR/js/"
+    ok "js/ Module ($(ls "$SOURCE_DIR/js/"*.js | wc -l) Dateien)"
 fi
 
-# Permissions
+# Setup-Script aktualisieren
+if [[ -f "$SOURCE_DIR/setup.sh" ]]; then
+    cp "$SOURCE_DIR/setup.sh" "$INSTALL_DIR/setup.sh"
+    ok "setup.sh"
+fi
+
+# Alte Dateien aufraeumen (aus Single-File-Version)
+for OLD_FILE in "$INSTALL_DIR/js/app.js" "$INSTALL_DIR/js/init.js" "$INSTALL_DIR/js/ui.js"; do
+    [[ -f "$OLD_FILE" ]] && rm -f "$OLD_FILE" && info "Alte Datei entfernt: $(basename $OLD_FILE)"
+done
+[[ -d "$INSTALL_DIR/views" ]] && rm -rf "$INSTALL_DIR/views" && info "Altes views/ Verzeichnis entfernt"
+
+# config.php wird NIE ueberschrieben
+info "config.php bleibt unveraendert"
+
+# Rechte setzen
 chown -R www-data:www-data "$INSTALL_DIR"
+chmod 644 "$INSTALL_DIR/index.php" "$INSTALL_DIR/lang.php" 2>/dev/null || true
+chmod 644 "$INSTALL_DIR/api/"*.php 2>/dev/null || true
+chmod 644 "$INSTALL_DIR/js/"*.js 2>/dev/null || true
 chmod 640 "$INSTALL_DIR/config.php" 2>/dev/null || true
-ok "Permissions set"
+chmod 750 "$INSTALL_DIR/data" 2>/dev/null || true
+ok "Berechtigungen gesetzt"
 
-# Reload PHP-FPM
-PHP_FPM=$(systemctl list-units --type=service --state=running 2>/dev/null | grep -oP 'php[\d.]+-fpm\.service' | head -1)
-if [[ -n "$PHP_FPM" ]]; then
-    systemctl reload "$PHP_FPM" 2>/dev/null || true
-    ok "PHP-FPM reloaded"
-fi
-
+# ── Ergebnis ─────────────────────────────────────────────
+NEW_VERSION=$(grep -oP "define\('APP_VERSION',\s*'\\K[^']+" "$INSTALL_DIR/index.php" 2>/dev/null || echo "unbekannt")
 echo ""
-echo -e "  ${GREEN}${BOLD}✓  Update complete — v${NEW_VERSION}${NC}"
+echo -e "${GREEN}${BOLD}  ✓ Update abgeschlossen: v$OLD_VERSION → v$NEW_VERSION${NC}"
 echo ""
