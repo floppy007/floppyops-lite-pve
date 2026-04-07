@@ -1,8 +1,6 @@
 /**
- * FloppyOps Lite PVE — Fail2ban
- * Fail2ban — load jails, unban IPs, config editor, log viewer
- *
- * @requires app.js (api, toast, fmtBytes, pct)
+ * FloppyOps Lite — Fail2ban
+ * Fail2ban — Jails, Logs, Unban
  */
 
 async function loadF2b() {
@@ -15,7 +13,7 @@ async function loadF2b() {
 
         jails.forEach(j => {
             const bannedHtml = j.banned_ips.length > 0
-                ? j.banned_ips.map(ip => `<div class="banned-ip"><span>${ip}</span><button class="unban-btn" title="Entbannen" onclick="unban('${j.name}','${ip}')">&#10005;</button></div>`).join('')
+                ? j.banned_ips.map(ip => `<div class="banned-ip"><span>${ip}</span><button class="unban-btn" title="${T.unban}" onclick="unban('${j.name}','${ip}')">&#10005;</button></div>`).join('')
                 : '<span style="color:var(--text3);font-size:.78rem">Keine gebannten IPs</span>';
 
             grid.innerHTML += `
@@ -41,6 +39,7 @@ async function loadF2b() {
         const logEl = document.getElementById('f2bLog');
         logEl.innerHTML = '';
         log.forEach(line => {
+            let cls = '';
             let hl = line.replace(/&/g, '&amp;').replace(/</g, '&lt;');
             if (hl.includes(' Ban ')) { hl = hl.replace(/( Ban )/, '<span class="log-ban">$1</span>'); }
             else if (hl.includes(' Unban ')) { hl = hl.replace(/( Unban )/, '<span class="log-unban">$1</span>'); }
@@ -49,7 +48,8 @@ async function loadF2b() {
             hl = hl.replace(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/, '<span class="log-ts">$1</span>');
             logEl.innerHTML += `<div class="log-line">${hl}</div>`;
         });
-    } catch (e) { /* load error */ }
+    } catch (e) {
+    }
 }
 
 async function unban(jail, ip) {
@@ -93,5 +93,3 @@ async function saveF2bConfig() {
         }
     } catch (e) { toast('Fehler: ' + e.message, 'error'); }
 }
-
-// ── Nginx Checks ─────────────────────────────────────

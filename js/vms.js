@@ -1,9 +1,75 @@
 /**
- * FloppyOps Lite — Vms
- * VMs/CTs — load VM list, clone modal with hardware customization
- *
- * @requires app.js (api, toast, fmtBytes, pct)
+ * FloppyOps Lite — VMs & Container
+ * VMs & Container — Liste, Clone, Start/Stop
  */
+
+let _pveVms = [];
+let _pveNode = '';
+
+async function loadDashboardVms() {
+    try {
+        const d = await api('pve-vms');
+        if (!d.ok) return;
+        document.getElementById('pveVmCount').textContent = d.vms.length;
+        const el = document.getElementById('dashVmList');
+        if (!d.vms.length) { el.innerHTML = '<span style="color:var(--text3)">Keine VMs/CTs</span>'; return; }
+
+        const running = d.vms.filter(v => v.status === 'running').length;
+        const stopped = d.vms.length - running;
+
+        let html = '<div style="display:flex;gap:12px;margin-bottom:8px;font-size:.68rem">';
+        html += '<span style="color:var(--green)">' + running + ' running</span>';
+        html += '<span style="color:var(--text3)">' + stopped + ' stopped</span>';
+        html += '</div>';
+        html += '<table style="width:100%;border-collapse:collapse;font-size:.72rem">';
+        html += '<thead><tr style="border-bottom:1px solid var(--border-subtle)">';
+        html += '<th style="text-align:left;padding:4px 6px;font-size:.6rem;color:var(--text3);font-weight:600">Status</th>';
+        html += '<th style="text-align:left;padding:4px 6px;font-size:.6rem;color:var(--text3);font-weight:600">VMID</th>';
+        html += '<th style="text-align:left;padding:4px 6px;font-size:.6rem;color:var(--text3);font-weight:600">Name</th>';
+        html += '<th style="text-align:left;padding:4px 6px;font-size:.6rem;color:var(--text3);font-weight:600">Typ</th>';
+        html += '<th style="text-align:left;padding:4px 6px;font-size:.6rem;color:var(--text3);font-weight:600">vCPU</th>';
+        html += '<th style="text-align:left;padding:4px 6px;font-size:.6rem;color:var(--text3);font-weight:600">RAM</th>';
+        html += '<th style="text-align:right;padding:4px 6px;font-size:.6rem;color:var(--text3);font-weight:600"></th>';
+        html += '</tr></thead><tbody>';
+        d.vms.sort((a, b) => a.vmid - b.vmid).forEach(v => {
+            const isUp = v.status === 'running';
+            const dot = isUp ? 'var(--green)' : 'var(--text3)';
+            const typeC = v.type === 'qemu' ? '#a855f7' : 'var(--blue)';
+            const typeL = v.type === 'qemu' ? 'VM' : 'CT';
+            const memPct = v.mem > 0 ? Math.round(v.mem_used / v.mem * 100) : 0;
+            html += '<tr style="border-bottom:1px solid var(--border-subtle)">';
+            html += '<td style="padding:5px 6px"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:' + dot + '"></span></td>';
+            html += '<td style="padding:5px 6px;font-family:var(--mono);font-weight:600">' + v.vmid + '</td>';
+            html += '<td style="padding:5px 6px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (v.name || '—') + '</td>';
+            html += '<td style="padding:5px 6px"><span style="font-size:.58rem;padding:1px 5px;border-radius:3px;background:rgba(' + (v.type==='qemu'?'168,85,247':'64,196,255') + ',.08);color:' + typeC + '">' + typeL + '</span></td>';
+            html += '<td style="padding:5px 6px;font-family:var(--mono);font-size:.68rem;color:var(--text2)">' + v.cpus + '</td>';
+            html += '<td style="padding:5px 6px;font-family:var(--mono);font-size:.68rem;color:var(--text2)">' + (isUp ? fmtBytes(v.mem_used) + ' <span style="color:var(--text3)">/ ' + fmtBytes(v.mem) + '</span>' : fmtBytes(v.mem)) + '</td>';
+            html += '<td style="padding:5px 6px;text-align:right;white-space:nowrap">';
+            if (isUp) {
+                html += '<button class="btn btn-sm btn-red" onclick="pveVmAction(' + v.vmid + ',\'' + v.type + '\',\'stop\')" style="padding:1px 5px;font-size:.5rem" title="Stop">Stop</button> ';
+                html += '<button class="btn btn-sm" onclick="pveVmAction(' + v.vmid + ',\'' + v.type + '\',\'restart\')" style="padding:1px 5px;font-size:.5rem" title="Restart">Restart</button>';
+            } else {
+                html += '<button class="btn btn-sm btn-green" onclick="pveVmAction(' + v.vmid + ',\'' + v.type + '\',\'start\')" style="padding:1px 5px;font-size:.5rem" title="Start">Start</button>';
+            }
+            html += '</td></tr>';
+        });
+        html += '</tbody></table>';
+        el.innerHTML = html;
+    } catch (e) { }
+}
+
+async function pveVmAction(vmid, type, action) {
+    toast(action + ' ' + vmid + '...');
+    try {
+        const res = await api('pve-control', 'POST', { vmid, type, action });
+        if (res.ok) {
+            toast(vmid + ' → ' + action + ' OK');
+            setTimeout(loadDashboardVms, 2000);
+        } else {
+            toast(res.error || 'Fehler', 'error');
+        }
+    } catch (e) { toast('Fehler: ' + e.message, 'error'); }
+}
 
 async function loadPveVms() {
     try {
@@ -37,12 +103,13 @@ async function loadPveVms() {
         });
         html += '</tbody></table>';
         list.innerHTML = html;
-    } catch (e) { /* load error */ }
+    } catch (e) {
+    }
 }
 
 async function pveOpenClone(vmid, type, name) {
     const typeLabel = type === 'qemu' ? 'VM' : 'CT';
-    document.getElementById('pveCloneTitle').textContent = T.clone + ' ' + typeLabel + ' ' + vmid + ' (' + name + ')';
+    document.getElementById('pveCloneTitle').textContent = 'Clone ' + typeLabel + ' ' + vmid + ' (' + name + ')';
 
     document.getElementById('pveCloneBody').innerHTML = '<div style="text-align:center;padding:24px"><span class="loading-spinner" style="width:20px;height:20px;border-width:2px"></span></div>';
     openModal('pveCloneModal');
@@ -67,8 +134,7 @@ async function pveOpenClone(vmid, type, name) {
             const net = cfg['net' + i];
             const bridge = (net.match(/bridge=([^,]+)/) || [])[1] || '?';
             const ip = (net.match(/ip=([^,]+)/) || [])[1] || 'DHCP';
-            const ip6 = (net.match(/ip6=([^,]+)/) || [])[1] || '';
-            netInfo += '<div style="font-size:.62rem;color:var(--text3);font-family:var(--mono)">net' + i + ': ' + bridge + ' &middot; ' + ip + (ip6 ? ' &middot; <span style="color:var(--blue)">' + ip6 + '</span>' : '') + '</div>';
+            netInfo += '<div style="font-size:.62rem;color:var(--text3);font-family:var(--mono)">net' + i + ': ' + bridge + ' &middot; ' + ip + '</div>';
         }
     }
 
@@ -182,7 +248,7 @@ async function pveDoClone() {
     const autoStart = document.getElementById('pveCloneAutoStart')?.checked;
     const onboot = document.getElementById('pveCloneOnboot')?.checked ? '1' : '0';
 
-    if (!newid || !name) { toast(T.vmid_name_required, 'error'); return; }
+    if (!newid || !name) { toast('VMID und Name erforderlich', 'error'); return; }
 
     const btn = document.getElementById('pveCloneBtn');
     btn.disabled = true;
@@ -196,7 +262,7 @@ async function pveDoClone() {
             btn.disabled = false; btn.innerHTML = 'Clone starten';
             return;
         }
-        toast(T.clone_started);
+        toast('Clone gestartet — warte auf Abschluss...');
 
         // Step 2: Wait for clone to finish (poll every 3s, max 120s)
         btn.innerHTML = '<span class="loading-spinner" style="width:12px;height:12px;border-width:1.5px;margin-right:4px"></span>2/3 Warte...';
@@ -208,7 +274,7 @@ async function pveDoClone() {
         }
 
         if (!ready) {
-            toast(T.clone_background, 'success');
+            toast('Clone laeuft noch im Hintergrund', 'success');
             closeModal('pveCloneModal');
             setTimeout(loadPveVms, 5000);
             return;
@@ -221,7 +287,7 @@ async function pveDoClone() {
             net_disconnect: netDisconnect
         });
         if (cfgRes.ok) {
-            toast(T.hw_config_saved);
+            toast('Hardware-Config angepasst');
         }
 
         // Optional: Start
@@ -241,5 +307,3 @@ async function pveDoClone() {
         btn.disabled = false; btn.innerHTML = 'Clone starten';
     }
 }
-
-
