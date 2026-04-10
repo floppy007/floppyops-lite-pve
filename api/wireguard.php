@@ -429,8 +429,14 @@ function handleWireguardAPI(string $action): bool {
         if (preg_match('/ListenPort\s*=\s*(\d+)/', $conf, $m)) $listenPort = (int)$m[1];
         if (preg_match('/Address\s*=\s*(\S+)/', $conf, $m)) $address = $m[1];
 
-        // Detect public IP
-        $publicIp = trim(shell_exec("curl -4 -s --max-time 3 ifconfig.me 2>/dev/null") ?? '');
+        // Detect public IP (cached 5min)
+        $pubIpCache = '/tmp/floppyops-lite-pubip.cache';
+        if (file_exists($pubIpCache) && (time() - filemtime($pubIpCache)) < 300) {
+            $publicIp = trim(file_get_contents($pubIpCache));
+        } else {
+            $publicIp = trim(shell_exec("curl -4 -s --max-time 3 ifconfig.me 2>/dev/null") ?? '');
+            if ($publicIp) @file_put_contents($pubIpCache, $publicIp);
+        }
 
         // Count existing peers to suggest next IP
         $peerCount = preg_match_all('/\[Peer\]/', $conf);

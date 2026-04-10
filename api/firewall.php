@@ -258,9 +258,13 @@ function handleFirewallAPI(string $action): bool {
     }
 
     // GET: Alle VMs/CTs mit Firewall-Status und Template-Zuweisung
+    // ?quick=1 liefert nur Basis-Infos (schnell), ohne Firewall-Details
     if ($action === 'fw-vm-list') {
+        $quick = !empty($_GET['quick']);
+
+        // Full-data cache (nur fuer non-quick)
         $fwCache = '/tmp/floppyops-lite-fw-vmlist.json';
-        if (file_exists($fwCache) && (time() - filemtime($fwCache)) < 30) {
+        if (!$quick && file_exists($fwCache) && (time() - filemtime($fwCache)) < 30) {
             echo file_get_contents($fwCache);
             return true;
         }
@@ -277,8 +281,22 @@ function handleFirewallAPI(string $action): bool {
         }
         usort($guests, fn($a, $b) => $a['vmid'] - $b['vmid']);
 
-        // Fetch firewall options + IPs per guest
-        // Get server's public IPs for comparison
+        if ($quick) {
+            // Quick mode: Basis-Infos + Platzhalter
+            foreach ($guests as &$g) {
+                $g['fw_enabled'] = null;
+                $g['fw_policy_in'] = null;
+                $g['rule_count'] = null;
+                $g['ips'] = [];
+                $g['is_public'] = false;
+                $g['template'] = null;
+            }
+            unset($g);
+            echo json_encode(['ok' => true, 'guests' => $guests, 'node' => $node, 'quick' => true]);
+            return true;
+        }
+
+        // Full mode: Firewall-Details pro Guest
         $serverPubIps = [];
         $pubRaw = shell_exec("ip -4 addr show scope global 2>/dev/null | grep -oP 'inet \\K[\\d.]+'") ?? '';
         foreach (array_filter(explode("\n", trim($pubRaw))) as $ip) $serverPubIps[] = trim($ip);

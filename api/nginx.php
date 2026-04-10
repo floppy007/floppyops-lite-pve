@@ -154,32 +154,51 @@ function handleNginxAPI(string $action): bool {
                 preg_match('/proxy_pass\s+(https?:\/\/[^;]+);/', $content, $pp);
                 $target = $pp[1] ?? '';
                 $ssl = (bool)preg_match('/listen\s+443\s+ssl/', $content);
-                // SSL cert expiry via openssl s_client (works without root)
-                $sslExpiry = null;
-                $sslDaysLeft = null;
-                if ($ssl && !empty($domains)) {
-                    $mainDomain = reset($domains);
-                    $raw = shell_exec("echo | openssl s_client -servername " . escapeshellarg($mainDomain) . " -connect 127.0.0.1:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null") ?? '';
-                    if (preg_match('/notAfter=(.+)$/', trim($raw), $em)) {
-                        $ts = strtotime($em[1]);
-                        if ($ts) {
-                            $sslExpiry = date('Y-m-d', $ts);
-                            $sslDaysLeft = (int)round(($ts - time()) / 86400);
-                        }
-                    }
-                }
                 $sites[] = [
                     'file' => $file,
                     'domains' => array_values($domains),
                     'target' => $target,
                     'ssl' => $ssl,
-                    'ssl_expiry' => $sslExpiry,
-                    'ssl_days_left' => $sslDaysLeft,
+                    'ssl_expiry' => null,
+                    'ssl_days_left' => null,
                     'content' => $content,
                 ];
             }
         }
         echo json_encode($sites);
+        return true;
+    }
+
+    // GET: SSL-Expiry fuer alle Sites (lazy batch)
+    if ($action === 'nginx-ssl-batch') {
+        $dir = NGINX_SITES_DIR;
+        $results = [];
+        if (is_dir($dir)) {
+            foreach (array_diff(scandir($dir), ['.', '..', 'default', 'server-admin']) as $file) {
+                $content = file_get_contents("$dir/$file") ?: '';
+                if (!preg_match('/listen\s+443\s+ssl/', $content)) continue;
+                preg_match_all('/server_name\s+([^;]+);/', $content, $sn);
+                $domain = '';
+                foreach ($sn[1] ?? [] as $d) {
+                    foreach (preg_split('/\s+/', trim($d)) as $dd) {
+                        if ($dd && $dd !== '_') { $domain = $dd; break 2; }
+                    }
+                }
+                if (!$domain) continue;
+                $raw = shell_exec("echo | openssl s_client -servername " . escapeshellarg($domain) . " -connect 127.0.0.1:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null") ?? '';
+                $expiry = null;
+                $daysLeft = null;
+                if (preg_match('/notAfter=(.+)$/', trim($raw), $em)) {
+                    $ts = strtotime($em[1]);
+                    if ($ts) {
+                        $expiry = date('Y-m-d', $ts);
+                        $daysLeft = (int)round(($ts - time()) / 86400);
+                    }
+                }
+                $results[$file] = ['ssl_expiry' => $expiry, 'ssl_days_left' => $daysLeft];
+            }
+        }
+        echo json_encode(['ok' => true, 'ssl' => $results]);
         return true;
     }
 

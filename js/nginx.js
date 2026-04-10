@@ -75,19 +75,19 @@ async function loadNginx() {
                     sslTag = '<span class="tag ' + tagClass + '">SSL ' + statusText + '</span>';
                     sslInfo = '<div style="font-size:.68rem;color:var(--text3);margin-top:2px;font-family:var(--mono)">Ablauf: ' + s.ssl_expiry + '</div>';
                 } else {
-                    sslTag = '<span class="tag tag-green">SSL</span>';
+                    sslTag = '<span class="tag tag-green" style="opacity:.5">SSL</span>';
                 }
                 const mainDomain = s.domains[0] || '';
                 renewBtn = `<button class="btn btn-sm btn-green" onclick="renewCert('${mainDomain}')" title="SSL erneuern"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>`;
             }
 
             grid.innerHTML += `
-                <div class="site-row">
+                <div class="site-row" data-file="${s.file}">
                     <div class="site-domain">
-                        ${sslTag}
+                        <span class="ssl-tag">${sslTag}</span>
                         <div>
                             <div class="domains">${domainTags}</div>
-                            ${sslInfo}
+                            <span class="ssl-info">${sslInfo}</span>
                         </div>
                     </div>
                     <div class="site-target">${s.target || '<span style="color:var(--text3)">---</span>'}</div>
@@ -102,8 +102,41 @@ async function loadNginx() {
                     </div>
                 </div>`;
         });
+
+        // Lazy: SSL-Expiry nachladen
+        loadNginxSsl();
     } catch (e) {
     }
+}
+
+async function loadNginxSsl() {
+    try {
+        var d = await api('nginx-ssl-batch');
+        if (!d.ok || !d.ssl) return;
+        var grid = document.getElementById('siteGrid');
+        if (!grid) return;
+        sitesData.forEach(function(s) {
+            if (!s.ssl || !d.ssl[s.file]) return;
+            var info = d.ssl[s.file];
+            s.ssl_expiry = info.ssl_expiry;
+            s.ssl_days_left = info.ssl_days_left;
+            var row = grid.querySelector('[data-file="' + s.file + '"]');
+            if (!row) return;
+            var tagEl = row.querySelector('.ssl-tag');
+            var infoEl = row.querySelector('.ssl-info');
+            if (tagEl && info.ssl_days_left !== null) {
+                var cls = 'tag-green';
+                if (info.ssl_days_left <= 7) cls = 'tag-red';
+                else if (info.ssl_days_left <= 30) cls = 'tag-yellow';
+                tagEl.innerHTML = '<span class="tag ' + cls + '">SSL ' + info.ssl_days_left + 'd</span>';
+            } else if (tagEl) {
+                tagEl.innerHTML = '<span class="tag tag-green">SSL</span>';
+            }
+            if (infoEl && info.ssl_expiry) {
+                infoEl.innerHTML = '<div style="font-size:.68rem;color:var(--text3);margin-top:2px;font-family:var(--mono)">Ablauf: ' + info.ssl_expiry + '</div>';
+            }
+        });
+    } catch (e) {}
 }
 
 function showAddSite() {

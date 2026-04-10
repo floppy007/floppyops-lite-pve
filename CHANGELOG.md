@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.2.3 (2026-04-10)
+
+### Improved
+- **Nginx sites load instantly**: SSL certificate expiry is now loaded lazily via batch endpoint. Sites appear immediately, SSL badges update in background
+- **Firewall VM/CT table loads instantly**: Basic VM list renders immediately, firewall details (status, rules, IPs, templates) load in background
+- **WireGuard public IP cached**: `ifconfig.me` result cached for 5 minutes in Add Peer dialog
+
+### Added
+- **`nginx-ssl-batch` endpoint**: Batch SSL cert check for all sites
+- **`fw-vm-list?quick=1` parameter**: Fast VM list without per-VM firewall queries
+
 ## v1.1.4 (2026-04-06)
 
 ### Added

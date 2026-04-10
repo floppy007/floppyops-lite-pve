@@ -11,7 +11,7 @@
 // ║    5. JavaScript Module                      (js/*.js)         ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
-define('APP_VERSION', '1.2.2');
+define('APP_VERSION', '1.2.3');
 require_once __DIR__ . '/config.php';
 session_start();
 require_once __DIR__ . '/lang.php';
