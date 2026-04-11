@@ -24,6 +24,14 @@ info() { echo -e "  ${CYAN}ℹ${NC}  $1"; }
 cleanup() { [[ -n "${WORK_DIR:-}" && -d "${WORK_DIR:-}" ]] && rm -rf "$WORK_DIR"; }
 trap cleanup EXIT
 
+run_root_cmd() {
+    if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
+        "$@"
+    else
+        sudo -n "$@"
+    fi
+}
+
 download_release_to_temp() {
     WORK_DIR="$(mktemp -d /tmp/floppyops-lite-update-XXXXXX)"
     local archive="$WORK_DIR/release.tar.gz"
@@ -46,7 +54,7 @@ reload_php_fpm() {
     local units=()
     while IFS= read -r unit; do
         [[ -n "$unit" ]] && units+=("$unit")
-    done < <(systemctl list-units --type=service --all 'php*-fpm.service' --no-legend 2>/dev/null | awk '{print $1}')
+    done < <(run_root_cmd systemctl list-units --type=service --all 'php*-fpm.service' --no-legend 2>/dev/null | awk '{print $1}')
 
     if [[ ${#units[@]} -eq 0 ]]; then
         warn "Keine php-fpm systemd Units gefunden, ueberspringe Reload"
@@ -55,13 +63,13 @@ reload_php_fpm() {
 
     local unit
     for unit in "${units[@]}"; do
-        if systemctl reload "$unit" 2>/dev/null; then
+        if run_root_cmd systemctl reload "$unit" 2>/dev/null; then
             ok "PHP-FPM neu geladen: $unit"
             continue
         fi
 
         warn "Reload fehlgeschlagen, versuche Restart: $unit"
-        systemctl restart "$unit"
+        run_root_cmd systemctl restart "$unit"
         ok "PHP-FPM neu gestartet: $unit"
     done
 }
@@ -74,6 +82,28 @@ require_file() {
 require_dir() {
     local dir="$1"
     [[ -d "$dir" ]] || { fail "Pflichtverzeichnis fehlt: $dir"; exit 1; }
+}
+
+install_pam_helper() {
+    local source="$INSTALL_DIR/helpers/pam_auth.py"
+    [[ -f "$source" ]] || return 0
+
+    if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
+        warn "PAM-Helper-Update uebersprungen (kein root-Kontext)"
+        return 0
+    fi
+
+    mkdir -p /usr/local/libexec/floppyops-lite
+    install -o root -g www-data -m 0750 "$source" /usr/local/libexec/floppyops-lite/pam_auth.py
+    ok "PAM-Helper aktualisiert"
+
+    cat > /etc/pam.d/floppyops-lite <<'PAMEOF'
+# PAM stack for FloppyOps Lite local Linux auth
+@include common-auth
+@include common-account
+PAMEOF
+    chmod 644 /etc/pam.d/floppyops-lite
+    ok "PAM-Service aktualisiert"
 }
 
 set_permissions() {
@@ -94,8 +124,10 @@ validate_tree() {
     require_file "$tree/setup.sh"
     require_file "$tree/update.sh"
     require_dir "$tree/api"
+    require_dir "$tree/helpers"
     require_dir "$tree/js"
     require_dir "$tree/public"
+    require_file "$tree/helpers/pam_auth.py"
     require_file "$tree/public/style.css"
 
     php -l "$tree/index.php" >/dev/null
@@ -192,6 +224,7 @@ sync_release "$SOURCE_DIR"
 ok "Dateien vollstaendig synchronisiert"
 
 info "config.php bleibt unveraendert"
+install_pam_helper
 reload_php_fpm
 
 # ── Ergebnis ─────────────────────────────────────────────

@@ -326,6 +326,7 @@ PACKAGES=(
     nginx
     "php${PHP_VERSION}-fpm"
     openssl
+    python3-pam
 )
 [[ "$MOD_FAIL2BAN" == "true" ]] && PACKAGES+=(fail2ban)
 [[ "$MOD_NGINX" == "true" ]] && PACKAGES+=(certbot python3-certbot-nginx)
@@ -412,6 +413,14 @@ else
     die "update.sh $(L not_found_in) $SCRIPT_DIR"
 fi
 
+if [[ -d "$SCRIPT_DIR/helpers" ]] && [[ -f "$SCRIPT_DIR/helpers/pam_auth.py" ]]; then
+    mkdir -p "$INSTALL_DIR/helpers"
+    cp "$SCRIPT_DIR/helpers/pam_auth.py" "$INSTALL_DIR/helpers/pam_auth.py"
+    ok "helpers/pam_auth.py $(L copied)"
+else
+    die "helpers/pam_auth.py $(L not_found_in) $SCRIPT_DIR/helpers"
+fi
+
 # Config
 if [[ -f "$INSTALL_DIR/config.php" ]]; then
     info "config.php existiert bereits, wird nicht ueberschrieben"
@@ -441,10 +450,23 @@ chmod 644 "$INSTALL_DIR/index.php" "$INSTALL_DIR/lang.php"
 chmod 644 "$INSTALL_DIR/api/"*.php
 chmod 644 "$INSTALL_DIR/js/"*.js
 chmod 644 "$INSTALL_DIR/public/style.css"
+chmod 644 "$INSTALL_DIR/helpers/pam_auth.py"
 chmod 755 "$INSTALL_DIR/setup.sh" "$INSTALL_DIR/update.sh"
 chmod 640 "$INSTALL_DIR/config.php"
 chmod 750 "$INSTALL_DIR/data"
 ok "$(L perms_set)"
+
+mkdir -p /usr/local/libexec/floppyops-lite
+install -o root -g www-data -m 0750 "$INSTALL_DIR/helpers/pam_auth.py" /usr/local/libexec/floppyops-lite/pam_auth.py
+ok "PAM-Helper installiert"
+
+cat > /etc/pam.d/floppyops-lite <<'PAMEOF'
+# PAM stack for FloppyOps Lite local Linux auth
+@include common-auth
+@include common-account
+PAMEOF
+chmod 644 /etc/pam.d/floppyops-lite
+ok "PAM-Service installiert"
 
 # ══════════════════════════════════════════════════════════
 # STEP 3: PHP-FPM
@@ -766,13 +788,16 @@ echo "www-data ALL=(root) NOPASSWD: /usr/bin/pvesh create *"
 echo "www-data ALL=(root) NOPASSWD: /usr/bin/pvesh delete *"
 echo "www-data ALL=(root) NOPASSWD: /usr/bin/ss -tlnpH"
 # Self-Update + System Updates
-echo "www-data ALL=(root) NOPASSWD: /usr/bin/systemctl reload php*-fpm"
-echo "www-data ALL=(root) NOPASSWD: /usr/bin/systemctl restart php*-fpm"
+echo "www-data ALL=(root) NOPASSWD: /usr/local/libexec/floppyops-lite/pam_auth.py --user *"
+echo "www-data ALL=(root) NOPASSWD: /usr/bin/systemctl list-units --type=service --all php*-fpm.service --no-legend"
+echo "www-data ALL=(root) NOPASSWD: /usr/bin/systemctl reload php*-fpm.service"
+echo "www-data ALL=(root) NOPASSWD: /usr/bin/systemctl restart php*-fpm.service"
 echo "www-data ALL=(root) NOPASSWD: /usr/bin/apt-get update"
 echo "www-data ALL=(root) NOPASSWD: /usr/bin/apt-get dist-upgrade *"
 echo "www-data ALL=(root) NOPASSWD: /usr/bin/apt-get autoremove *"
 } > /etc/sudoers.d/server-admin
 chmod 440 /etc/sudoers.d/server-admin
+visudo -cf /etc/sudoers.d/server-admin >/dev/null || die "Sudoers-Regeln fehlerhaft"
 ok "$(L sudoers_created)"
 
 # ══════════════════════════════════════════════════════════

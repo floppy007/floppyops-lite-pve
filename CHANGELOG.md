@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.2.5 (2026-04-11)
+
+### Fixed
+- **App updates now use one backend path**: In-app updates and the app auto-update cron now both go through `update.sh`, so Git and non-Git installs use the same validated full-tree update flow
+- **PHP-FPM reload is now explicit**: Update reloads now detect concrete `php*-fpm.service` units instead of relying on wildcard `systemctl` calls
+- **PAM login no longer uses `su` shell piping**: Linux authentication now goes through a dedicated root-owned PAM helper via `sudo`, while the PVE/PAM realm split stays intact
+- **Linux PAM login finalized**: PAM auth now uses a dedicated `floppyops-lite` PAM service, supports the host `PAM` Python module variant, strips accidental realm suffixes like `@pam`, and returns the helper error path correctly for explicit PAM logins
+- **Setup and update keep PAM auth in sync**: `setup.sh` and `update.sh` now both install/update the dedicated PAM service file alongside the PAM helper
+
 ## v1.2.4 (2026-04-11)
 
 ### Improved

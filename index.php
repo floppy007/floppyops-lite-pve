@@ -11,7 +11,7 @@
 // ║    5. JavaScript Module                      (js/*.js)         ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
-define('APP_VERSION', '1.2.4');
+define('APP_VERSION', '1.2.5');
 require_once __DIR__ . '/config.php';
 session_start();
 require_once __DIR__ . '/lang.php';
@@ -21,6 +21,56 @@ require_once __DIR__ . '/lang.php';
 // ╚══════════════════════════════════════════════════════════════════╝
 $authMethod = defined('AUTH_METHOD') ? AUTH_METHOD : 'auto'; // auto, pve, pam, local
 $loginError = '';
+
+function authenticatePamUser(string $user, string $pass): array {
+    if (str_contains($user, '@')) {
+        $user = explode('@', $user, 2)[0];
+    }
+
+    if (!preg_match('/^[a-zA-Z0-9_.@-]{1,64}$/', $user)) {
+        return ['ok' => false, 'error' => 'Linux-Authentifizierung fehlgeschlagen'];
+    }
+
+    $helper = '/usr/local/libexec/floppyops-lite/pam_auth.py';
+    if (!is_file($helper) || !is_executable($helper)) {
+        return ['ok' => false, 'error' => 'PAM-Authentifizierung ist nicht eingerichtet'];
+    }
+
+    $cmd = ['sudo', '-n', $helper, '--user', $user];
+    $spec = [
+        0 => ['pipe', 'w'],
+        1 => ['pipe', 'r'],
+        2 => ['pipe', 'r'],
+    ];
+    $proc = proc_open($cmd, $spec, $pipes);
+    if (!is_resource($proc)) {
+        return ['ok' => false, 'error' => 'PAM-Authentifizierung konnte nicht gestartet werden'];
+    }
+
+    fwrite($pipes[0], $pass . "\n");
+    fclose($pipes[0]);
+
+    $stdout = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[2]);
+    $exitCode = proc_close($proc);
+
+    $data = json_decode($stdout ?: '', true);
+    if ($exitCode === 0 && is_array($data) && !empty($data['ok'])) {
+        return ['ok' => true, 'user' => $user, 'method' => 'pam'];
+    }
+
+    if (is_array($data) && !empty($data['error'])) {
+        return ['ok' => false, 'error' => (string)$data['error']];
+    }
+
+    if (str_contains(strtolower($stderr), 'sudo')) {
+        return ['ok' => false, 'error' => 'PAM-Authentifizierung ist nicht freigeschaltet'];
+    }
+
+    return ['ok' => false, 'error' => 'Linux-Authentifizierung fehlgeschlagen'];
+}
 
 function authenticateUser(string $user, string $pass, string $method): array {
     // PVE API Auth
@@ -46,15 +96,11 @@ function authenticateUser(string $user, string $pass, string $method): array {
         if ($method === 'pve') return ['ok' => false, 'error' => 'PVE-Authentifizierung fehlgeschlagen'];
     }
 
-    // Linux PAM Auth (via su)
+    // Linux PAM Auth (via root helper)
     if ($method === 'pam' || $method === 'auto') {
-        $safeUser = escapeshellarg($user);
-        $safePass = escapeshellarg($pass);
-        $out = shell_exec("echo $safePass | su - $safeUser -c 'echo AUTH_SUCCESS' 2>/dev/null") ?? '';
-        if (str_contains($out, 'AUTH_SUCCESS')) {
-            return ['ok' => true, 'user' => $user, 'method' => 'pam'];
-        }
-        if ($method === 'pam') return ['ok' => false, 'error' => 'Linux-Authentifizierung fehlgeschlagen'];
+        $pamResult = authenticatePamUser($user, $pass);
+        if ($pamResult['ok']) return $pamResult;
+        if ($method === 'pam') return $pamResult;
     }
 
     return ['ok' => false, 'error' => 'Benutzername oder Passwort falsch'];
