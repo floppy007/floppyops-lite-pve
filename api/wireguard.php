@@ -31,6 +31,122 @@ function wgWriteConf(string $path, string $content): bool {
     return (bool)$ok;
 }
 
+function wgParseRouteNetworks(string $raw): array
+{
+    $items = preg_split('/[\s,;]+/', trim($raw)) ?: [];
+    $routes = [];
+    foreach ($items as $item) {
+        $item = trim($item);
+        if ($item === '') continue;
+        if (!preg_match('#^\d{1,3}(?:\.\d{1,3}){3}/\d{1,2}$#', $item)) continue;
+        $routes[$item] = true;
+    }
+    return array_keys($routes);
+}
+
+function wgIsPrivateIpv4Cidr(string $cidr): bool
+{
+    $ip = explode('/', $cidr, 2)[0] ?? '';
+    return (bool)preg_match('#^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)#', $ip);
+}
+
+function wgGetBridgeIpv4(string $bridge): ?string
+{
+    if ($bridge === '') return null;
+    $raw = shell_exec("ip -4 -o addr show dev " . escapeshellarg($bridge) . " 2>/dev/null") ?? '';
+    if (preg_match('/inet\s+(\d+\.\d+\.\d+\.\d+)\//', $raw, $m)) {
+        return $m[1];
+    }
+    return null;
+}
+
+function wgParsePctNetworks(string $configRaw): array
+{
+    $nets = [];
+    foreach (explode("\n", trim($configRaw)) as $line) {
+        if (!preg_match('/^(net\d+):\s+(.+)$/', trim($line), $m)) continue;
+        $attrs = ['slot' => $m[1]];
+        foreach (explode(',', $m[2]) as $part) {
+            $part = trim($part);
+            if ($part === '') continue;
+            [$key, $value] = array_pad(explode('=', $part, 2), 2, '');
+            $attrs[$key] = $value;
+        }
+        $nets[] = [
+            'slot' => $attrs['slot'],
+            'name' => $attrs['name'] ?? '',
+            'bridge' => $attrs['bridge'] ?? '',
+            'ip' => $attrs['ip'] ?? '',
+            'gateway' => $attrs['gw'] ?? '',
+        ];
+    }
+    return $nets;
+}
+
+function wgChooseLxcRouteTarget(array $nets): ?array
+{
+    foreach ($nets as $net) {
+        if (!wgIsPrivateIpv4Cidr($net['ip'] ?? '')) continue;
+        $gateway = trim($net['gateway'] ?? '');
+        if ($gateway === '') {
+            $gateway = wgGetBridgeIpv4($net['bridge'] ?? '') ?? '';
+        }
+        if ($gateway === '') continue;
+        return [
+            'iface' => $net['name'] ?? '',
+            'bridge' => $net['bridge'] ?? '',
+            'ip' => $net['ip'] ?? '',
+            'gateway' => $gateway,
+        ];
+    }
+    return null;
+}
+
+function wgInspectLxcReachability(int $vmid, array $routes): array
+{
+    $configRaw = shell_exec('sudo pct config ' . escapeshellarg((string)$vmid) . ' 2>/dev/null') ?? '';
+    $nets = wgParsePctNetworks($configRaw);
+    $target = wgChooseLxcRouteTarget($nets);
+    $routeRaw = shell_exec('sudo pct exec ' . escapeshellarg((string)$vmid) . ' -- ip -4 route show table main 2>/dev/null') ?? '';
+    $addrRaw = shell_exec('sudo pct exec ' . escapeshellarg((string)$vmid) . ' -- ip -4 -o addr show scope global 2>/dev/null') ?? '';
+    $hasInterfacesFile = trim(shell_exec('sudo pct exec ' . escapeshellarg((string)$vmid) . " -- sh -lc 'test -f /etc/network/interfaces && echo yes || echo no' 2>/dev/null") ?? '') === 'yes';
+
+    $defaultIface = '';
+    if (preg_match('/^default\s+via\s+\S+\s+dev\s+(\S+)/m', $routeRaw, $m)) {
+        $defaultIface = $m[1];
+    }
+
+    $missingRoutes = [];
+    foreach ($routes as $route) {
+        if (!preg_match('/^' . preg_quote($route, '/') . '(?:\s|$)/m', $routeRaw)) {
+            $missingRoutes[] = $route;
+        }
+    }
+
+    $addrLines = array_values(array_filter(array_map('trim', explode("\n", trim($addrRaw)))));
+    $addrCount = count($addrLines);
+    $defaultViaPrivate = $defaultIface !== '' && $target && $defaultIface === $target['iface'];
+
+    return [
+        'vmid' => $vmid,
+        'networks' => $nets,
+        'route_target' => $target,
+        'default_iface' => $defaultIface,
+        'route_table' => trim($routeRaw),
+        'global_addrs' => $addrLines,
+        'addr_count' => $addrCount,
+        'dual_homed' => $addrCount > 1 || ($target && $defaultIface !== '' && $defaultIface !== $target['iface']),
+        'default_via_private' => $defaultViaPrivate,
+        'missing_routes' => $missingRoutes,
+        'fixable' => !empty($missingRoutes) && $target !== null,
+        'persistent_supported' => $hasInterfacesFile,
+        'recommended_lines' => $target ? array_map(
+            fn($route) => "post-up ip route replace $route via {$target['gateway']} dev {$target['iface']}",
+            $missingRoutes
+        ) : [],
+    ];
+}
+
 /**
  * WireGuard VPN Verwaltung: Tunnel-Status, Config lesen/speichern,
  * Keys generieren, Tunnel erstellen/loeschen/starten/stoppen.
@@ -456,6 +572,92 @@ function handleWireguardAPI(string $action): bool {
             'public_ip' => $publicIp,
             'suggested_ip' => $suggestedIp,
             'peer_count' => $peerCount,
+        ]);
+        return true;
+    }
+
+    if ($action === 'wg-lxc-route-audit') {
+        $routes = wgParseRouteNetworks($_GET['routes'] ?? '');
+        if ($routes === []) {
+            echo json_encode(['ok' => false, 'error' => 'Mindestens ein Zielnetz erforderlich']);
+            return true;
+        }
+
+        $node = trim(shell_exec('hostname 2>/dev/null') ?? '');
+        $raw = shell_exec("sudo pvesh get /nodes/$node/lxc --output-format json 2>/dev/null") ?? '[]';
+        $cts = json_decode($raw, true) ?: [];
+        $result = [];
+
+        foreach ($cts as $ct) {
+            if (($ct['status'] ?? '') !== 'running') continue;
+            $vmid = (int)($ct['vmid'] ?? 0);
+            if ($vmid <= 0) continue;
+
+            $inspect = wgInspectLxcReachability($vmid, $routes);
+            $result[] = array_merge([
+                'name' => $ct['name'] ?? '',
+                'status' => $ct['status'] ?? 'unknown',
+            ], $inspect);
+        }
+
+        usort($result, fn($a, $b) => $a['vmid'] <=> $b['vmid']);
+        echo json_encode(['ok' => true, 'routes' => $routes, 'containers' => $result]);
+        return true;
+    }
+
+    if ($action === 'wg-lxc-route-fix' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        csrf_check();
+        $vmid = (int)($_POST['vmid'] ?? 0);
+        $routes = wgParseRouteNetworks($_POST['routes'] ?? '');
+        $persist = ($_POST['persist'] ?? '1') === '1';
+
+        if ($vmid <= 0 || $routes === []) {
+            echo json_encode(['ok' => false, 'error' => 'VMID und Zielnetze erforderlich']);
+            return true;
+        }
+
+        $inspect = wgInspectLxcReachability($vmid, $routes);
+        $target = $inspect['route_target'] ?? null;
+        $missingRoutes = $inspect['missing_routes'] ?? [];
+        if ($target === null) {
+            echo json_encode(['ok' => false, 'error' => 'Kein internes LXC-Interface mit passendem Gateway erkannt']);
+            return true;
+        }
+        if ($missingRoutes === []) {
+            echo json_encode(['ok' => true, 'message' => 'Keine fehlenden Routen erkannt', 'inspect' => $inspect]);
+            return true;
+        }
+        if ($persist && empty($inspect['persistent_supported'])) {
+            echo json_encode(['ok' => false, 'error' => '/etc/network/interfaces nicht gefunden — Persistenz aktuell nur fuer ifupdown']);
+            return true;
+        }
+
+        $script = "set -e\n";
+        foreach ($missingRoutes as $route) {
+            $script .= 'ip route replace ' . escapeshellarg($route)
+                . ' via ' . escapeshellarg($target['gateway'])
+                . ' dev ' . escapeshellarg($target['iface']) . "\n";
+        }
+        if ($persist) {
+            $script .= "test -f /etc/network/interfaces\n";
+            $script .= "cp /etc/network/interfaces /etc/network/interfaces.floppyops-lite.bak\n";
+            foreach ($missingRoutes as $route) {
+                $line = "post-up ip route replace $route via {$target['gateway']} dev {$target['iface']}";
+                $script .= "grep -qF " . escapeshellarg($line) . " /etc/network/interfaces || printf '\\n%s\\n' "
+                    . escapeshellarg($line) . " >> /etc/network/interfaces\n";
+            }
+        }
+        $script .= "ip -4 route show table main\n";
+
+        $cmd = 'sudo pct exec ' . escapeshellarg((string)$vmid) . ' -- sh -lc ' . escapeshellarg($script) . ' 2>&1';
+        $output = shell_exec($cmd) ?? '';
+        $refreshed = wgInspectLxcReachability($vmid, $routes);
+
+        echo json_encode([
+            'ok' => true,
+            'output' => trim($output),
+            'message' => 'Routen angewendet',
+            'inspect' => $refreshed,
         ]);
         return true;
     }

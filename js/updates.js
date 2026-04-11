@@ -109,7 +109,7 @@ async function loadUpdates() {
         // Warnings
         if (repo.enterprise_active && repo.no_sub_active) {
             warnEl.style.display = 'flex';
-            warnText.textContent = 'Enterprise und No-Subscription gleichzeitig aktiv — kann zu Konflikten führen. Nur eins aktivieren!';
+            warnText.textContent = 'Enterprise und No-Subscription gleichzeitig aktiv - kann zu Konflikten führen. Nur eins aktivieren!';
         } else if (repo.enterprise_active && !repo.has_subscription) {
             warnEl.style.display = 'flex';
             warnText.textContent = 'Enterprise-Repo aktiv ohne Subscription — Updates werden fehlschlagen!';
@@ -118,7 +118,7 @@ async function loadUpdates() {
             warnText.textContent = 'Subscription vorhanden aber Enterprise-Repo deaktiviert — kein Zugang zu Enterprise-Updates.';
         } else if (!repo.no_sub_active && !repo.enterprise_active) {
             warnEl.style.display = 'flex';
-            warnText.textContent = 'Kein PVE-Repository aktiv — keine Proxmox-Updates möglich!';
+            warnText.textContent = 'Kein PVE-Repository aktiv - keine Proxmox-Updates möglich!';
         } else {
             warnEl.style.display = 'none';
         }

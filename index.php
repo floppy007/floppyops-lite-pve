@@ -1,7 +1,7 @@
 <?php
 // ╔══════════════════════════════════════════════════════════════════╗
-// ║                    FloppyOps Lite — index.php                   ║
-// ║  Server Management Panel fuer Proxmox VE                       ║
+// ║                    FloppyOps Lite  -  index.php                   ║
+// ║  Server Management Panel für Proxmox VE                       ║
 // ║                                                                ║
 // ║  Aufbau:                                                       ║
 // ║    1. PHP Konfiguration & Authentifizierung  (hier)            ║
@@ -11,7 +11,7 @@
 // ║    5. JavaScript Module                      (js/*.js)         ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
-define('APP_VERSION', '1.2.6');
+define('APP_VERSION', '1.2.8');
 require_once __DIR__ . '/config.php';
 session_start();
 require_once __DIR__ . '/lang.php';
@@ -150,7 +150,7 @@ function showLoginPage(string $error = ''): void {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{$appName} — Login</title>
+<title>{$appName}  -  Login</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--bg:#050810;--accent:#ff5900;--surface:rgba(17,24,39,.55);--border:rgba(255,255,255,.05);--text:#e8eaed;--text2:#9aa0a6;--text3:#5f6368}
@@ -363,7 +363,7 @@ function csrf_check(): void {
 // ╔══════════════════════════════════════════════════════════════════╗
 // ║                     API HANDLER (Module)                          ║
 // ║  Jedes Modul stellt eine handleXxxAPI($action)-Funktion bereit.   ║
-// ║  Dateien liegen in api/ — ein Modul pro Feature.                  ║
+// ║  Dateien liegen in api/  -  ein Modul pro Feature.                  ║
 // ╚══════════════════════════════════════════════════════════════════╝
 require_once __DIR__ . '/api/dashboard.php';   // System-Stats (CPU, RAM, Disk)
 require_once __DIR__ . '/api/fail2ban.php';    // Jails, Logs, Config
@@ -1443,13 +1443,13 @@ body::after {
                         Nginx auf diesem Server empfaengt alle HTTP/HTTPS-Anfragen und leitet sie an interne Container oder VMs weiter.
                         So können mehrere Webseiten/Apps auf einem Server laufen, jede mit eigener Domain und SSL-Zertifikat.
                         <div style="margin:10px 0;padding:8px 12px;background:rgba(0,0,0,.2);border-radius:6px;font-family:var(--mono);font-size:.65rem;color:var(--text3)">
-                            Browser → <span style="color:var(--accent)">nginx (:443 SSL)</span> → <span style="color:var(--green)">CT/VM (10.10.10.x:80)</span>
+                            Browser -> <span style="color:var(--accent)">nginx (:443 SSL)</span> -> <span style="color:var(--green)">CT/VM (10.10.10.x:80)</span>
                         </div>
                         <?php else: ?>
                         Nginx on this server receives all HTTP/HTTPS requests and forwards them to internal containers or VMs.
                         Multiple websites/apps can run on one server, each with its own domain and SSL certificate.
                         <div style="margin:10px 0;padding:8px 12px;background:rgba(0,0,0,.2);border-radius:6px;font-family:var(--mono);font-size:.65rem;color:var(--text3)">
-                            Browser → <span style="color:var(--accent)">nginx (:443 SSL)</span> → <span style="color:var(--green)">CT/VM (10.10.10.x:80)</span>
+                            Browser -> <span style="color:var(--accent)">nginx (:443 SSL)</span> -> <span style="color:var(--green)">CT/VM (10.10.10.x:80)</span>
                         </div>
                         <?php endif; ?>
                     </div>
@@ -1486,6 +1486,7 @@ body::after {
                 </div>
                 <div style="display:flex;gap:6px">
                     <button class="btn btn-sm btn-green" onclick="wgWizardOpen()">+ Neuer Tunnel</button>
+                    <button class="btn btn-sm" onclick="wgOpenLxcRouteModal()">LXC Reachability</button>
                     <button class="btn btn-sm" onclick="wgImportOpen()"><?= $lang === 'de' ? 'Config importieren' : 'Import Config' ?></button>
                     <button class="btn btn-sm" onclick="loadWg()"><?= $lang === 'de' ? 'Aktualisieren' : 'Refresh' ?></button>
                 </div>
@@ -1501,10 +1502,10 @@ body::after {
                     <?php if ($lang === 'de'): ?>
                     <strong style="color:var(--text)">Sichere Verbindung zu deinem Server</strong><br>
                     WireGuard erstellt einen verschlüsselten Tunnel zwischen deinem lokalen Netzwerk und dem Dedicated Server.
-                    So erreichst du alle internen Dienste (CTs, VMs, PVE WebUI) sicher über das Internet — ohne Ports öffentlich freizugeben.
+                    So erreichst du alle internen Dienste (CTs, VMs, PVE WebUI) sicher über das Internet - ohne Ports öffentlich freizugeben.
 
                     <div style="margin:10px 0;padding:8px 12px;background:rgba(0,0,0,.2);border-radius:6px;font-family:var(--mono);font-size:.65rem;color:var(--text3)">
-                        Büro/Zuhause (10.10.20.2) → <span style="color:var(--accent)">WireGuard Tunnel</span> → Dedicated Server (10.10.20.1) → <span style="color:var(--green)">CTs (10.10.10.x)</span>
+                        Büro/Zuhause (10.10.20.2) -> <span style="color:var(--accent)">WireGuard Tunnel</span> -> Dedicated Server (10.10.20.1) -> <span style="color:var(--green)">CTs (10.10.10.x)</span>
                     </div>
 
                     <strong style="color:var(--text)">Typische Einsatzszenarien:</strong>
@@ -1523,17 +1524,17 @@ body::after {
                     <?php else: ?>
                     <strong style="color:var(--text)">Secure connection to your server</strong><br>
                     WireGuard creates an encrypted tunnel between your local network and the dedicated server.
-                    Access all internal services (CTs, VMs, PVE WebUI) securely over the internet — without exposing ports publicly.
+                    Access all internal services (CTs, VMs, PVE WebUI) securely over the internet  -  without exposing ports publicly.
 
                     <div style="margin:10px 0;padding:8px 12px;background:rgba(0,0,0,.2);border-radius:6px;font-family:var(--mono);font-size:.65rem;color:var(--text3)">
-                        Office/Home (10.10.20.2) → <span style="color:var(--accent)">WireGuard Tunnel</span> → Dedicated Server (10.10.20.1) → <span style="color:var(--green)">CTs (10.10.10.x)</span>
+                        Office/Home (10.10.20.2) -> <span style="color:var(--accent)">WireGuard Tunnel</span> -> Dedicated Server (10.10.20.1) -> <span style="color:var(--green)">CTs (10.10.10.x)</span>
                     </div>
 
                     <strong style="color:var(--text)">Typical use cases:</strong>
                     <div style="display:flex;flex-direction:column;gap:4px;margin-top:6px">
                         <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> Secure PVE WebUI access without public port 8006</div>
                         <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> Access internal CTs/VMs from anywhere (home office, mobile)</div>
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> Site-to-site VPN between locations (office ↔ datacenter)</div>
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> Site-to-site VPN between locations (office <-> datacenter)</div>
                         <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> Backup traffic over encrypted connection (PBS, ZFS replication)</div>
                         <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> Monitoring & management without public attack surface</div>
                     </div>
@@ -1599,14 +1600,14 @@ body::after {
                 <div id="zfsGuide" style="display:none;padding:14px;font-size:.72rem;color:var(--text2);line-height:1.8">
                     <?php if ($lang === 'de'): ?>
                     <strong style="color:var(--text)">Datensicherung direkt auf dem Server</strong><br>
-                    ZFS Snapshots sind sofortige, platzsparende Sicherungspunkte deiner Container und VMs. Sie ermöglichen sekundenschnelles Zurückrollen bei Problemen.
+                    ZFS Snapshots sind sofortige, platzsparende Sicherungspunkte deiner Container und VMs. Sie ermöglichen sekundenschnelles Zurueckrollen bei Problemen.
 
                     <div style="display:flex;flex-direction:column;gap:4px;margin-top:8px">
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Auto-Snapshots</strong> — Automatisch alle 15 Min, stündlich, täglich, wöchentlich, monatlich</div>
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Rollback</strong> — Container auf einen früheren Zustand zurücksetzen</div>
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Clone</strong> — Neuen CT/VM aus einem Snapshot erstellen (Test, Migration)</div>
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Platzsparend</strong> — Nur geänderte Blöcke werden gespeichert (Copy-on-Write)</div>
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Keine Downtime</strong> — Snapshots sind sofort, ohne den CT/VM zu stoppen</div>
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Auto-Snapshots</strong> - Automatisch alle 15 Min, stündlich, täglich, wöchentlich, monatlich</div>
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Rollback</strong> - Container auf einen früheren Zustand zurücksetzen</div>
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Clone</strong>  -  Neuen CT/VM aus einem Snapshot erstellen (Test, Migration)</div>
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Platzsparend</strong> - Nur geänderte Blöcke werden gespeichert (Copy-on-Write)</div>
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Keine Downtime</strong>  -  Snapshots sind sofort, ohne den CT/VM zu stoppen</div>
                     </div>
 
                     <div style="margin-top:10px;padding:8px 12px;background:rgba(255,89,0,.04);border:1px solid rgba(255,89,0,.1);border-radius:6px;font-size:.65rem">
@@ -1617,11 +1618,11 @@ body::after {
                     ZFS snapshots are instant, space-efficient backup points of your containers and VMs. Roll back in seconds when problems occur.
 
                     <div style="display:flex;flex-direction:column;gap:4px;margin-top:8px">
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Auto-Snapshots</strong> — Automatically every 15 min, hourly, daily, weekly, monthly</div>
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Rollback</strong> — Restore container to a previous state</div>
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Clone</strong> — Create new CT/VM from a snapshot (testing, migration)</div>
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Space-efficient</strong> — Only changed blocks are stored (copy-on-write)</div>
-                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>No downtime</strong> — Snapshots are instant, no CT/VM stop required</div>
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Auto-Snapshots</strong>  -  Automatically every 15 min, hourly, daily, weekly, monthly</div>
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Rollback</strong>  -  Restore container to a previous state</div>
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Clone</strong>  -  Create new CT/VM from a snapshot (testing, migration)</div>
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>Space-efficient</strong>  -  Only changed blocks are stored (copy-on-write)</div>
+                        <div style="display:flex;align-items:center;gap:6px"><span style="color:var(--green)">&#10003;</span> <strong>No downtime</strong>  -  Snapshots are instant, no CT/VM stop required</div>
                     </div>
 
                     <div style="margin-top:10px;padding:8px 12px;background:rgba(255,89,0,.04);border:1px solid rgba(255,89,0,.1);border-radius:6px;font-size:.65rem">
@@ -1671,7 +1672,7 @@ body::after {
                 <div class="section-title">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
                     Updates
-                    <span id="updCount" class="count" style="font-size:.58rem">—</span>
+                    <span id="updCount" class="count" style="font-size:.58rem"> - </span>
                 </div>
                 <div style="display:flex;gap:6px">
                     <button class="btn btn-sm" onclick="aptRefresh()" id="btnAptRefresh"><?= $lang === 'en' ? 'Check for updates' : 'Nach Updates suchen' ?></button>
@@ -1754,7 +1755,7 @@ body::after {
                         </label>
                         <div id="appAutoSchedule" style="margin-top:6px;display:flex;gap:6px;align-items:center;font-size:.68rem;flex-wrap:wrap;opacity:.4;pointer-events:none">
                             <select id="appAutoDay" onchange="appAutoUpdateChanged()" style="background:var(--surface-solid);border:1px solid var(--border-subtle);border-radius:4px;padding:2px 5px;font-size:.66rem;color:var(--text)">
-                                <option value="0"><?= $lang === 'en' ? 'Daily' : 'Täglich' ?></option>
+                                <option value="0"><?= $lang === 'en' ? 'Daily' : 'Taeglich' ?></option>
                                 <?php foreach (['Mo','Di','Mi','Do','Fr','Sa','So'] as $i => $d): ?><option value="<?= $i+1 ?>"><?= $d ?></option><?php endforeach; ?>
                             </select>
                             <select id="appAutoHour" onchange="appAutoUpdateChanged()" style="background:var(--surface-solid);border:1px solid var(--border-subtle);border-radius:4px;padding:2px 5px;font-size:.66rem;color:var(--text)">
@@ -1777,7 +1778,7 @@ body::after {
                     </label>
                     <div id="autoUpdateSchedule" style="margin-top:8px;display:flex;gap:8px;align-items:center;font-size:.72rem;flex-wrap:wrap;opacity:.4;pointer-events:none">
                         <select id="autoUpdateDay" onchange="autoUpdateChanged()" style="background:var(--surface-solid);border:1px solid var(--border-subtle);border-radius:4px;padding:3px 6px;font-size:.68rem;color:var(--text)">
-                            <option value="0"><?= $lang === 'en' ? 'Daily' : 'Täglich' ?></option>
+                            <option value="0"><?= $lang === 'en' ? 'Daily' : 'Taeglich' ?></option>
                             <?php foreach (['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag'] as $i => $d): ?><option value="<?= $i+1 ?>"><?= $d ?></option><?php endforeach; ?>
                         </select>
                         <span style="color:var(--text3)"><?= $lang === 'en' ? 'at' : 'um' ?></span>
@@ -1813,12 +1814,12 @@ body::after {
                 ['id' => 'h-dashboard', 'icon' => '📊', 'title' => 'Dashboard', 'content' => '
                     <p>Das Dashboard zeigt eine Echtzeit-Übersicht deines Servers:</p>
                     <ul>
-                        <li><strong>CPU-Auslastung</strong> — Aktuelle Prozessorlast in Prozent mit Live-Graph</li>
-                        <li><strong>RAM-Verbrauch</strong> — Genutzter/Gesamter Arbeitsspeicher</li>
-                        <li><strong>Disk-Auslastung</strong> — Speicherplatz pro Partition</li>
-                        <li><strong>Netzwerk-Traffic</strong> — Ein-/Ausgehender Traffic pro Sekunde</li>
-                        <li><strong>Uptime</strong> — Wie lange der Server läuft</li>
-                        <li><strong>Load Average</strong> — Systemlast (1/5/15 Minuten)</li>
+                        <li><strong>CPU-Auslastung</strong>  -  Aktuelle Prozessorlast in Prozent mit Live-Graph</li>
+                        <li><strong>RAM-Verbrauch</strong>  -  Genutzter/Gesamter Arbeitsspeicher</li>
+                        <li><strong>Disk-Auslastung</strong>  -  Speicherplatz pro Partition</li>
+                        <li><strong>Netzwerk-Traffic</strong>  -  Ein-/Ausgehender Traffic pro Sekunde</li>
+                        <li><strong>Uptime</strong>  -  Wie lange der Server laeuft</li>
+                        <li><strong>Load Average</strong>  -  Systemlast (1/5/15 Minuten)</li>
                     </ul>
                     <p>Die Statistiken werden automatisch alle paar Sekunden aktualisiert. Die Stat-Cards oben zeigen Zusammenfassungen für VMs/CTs, Fail2ban Jails, Nginx Sites und offene Ports.</p>
                 '],
@@ -1826,43 +1827,43 @@ body::after {
                     <p>Verwaltung aller virtuellen Maschinen und LXC-Container auf diesem PVE-Host.</p>
                     <h4>Funktionen:</h4>
                     <ul>
-                        <li><strong>Clone</strong> — Erstellt eine Kopie einer bestehenden VM/CT mit anpassbarer Hardware (CPU, RAM, Disk, Netzwerk)</li>
-                        <li><strong>Hardware anpassen</strong> — CPU-Kerne, RAM und Swap direkt ändern (erfordert Neustart)</li>
-                        <li><strong>Start/Stop/Reboot</strong> — VMs und Container steuern</li>
-                        <li><strong>Netzwerk</strong> — Bridge, VLAN, IP-Konfiguration beim Klonen anpassen</li>
+                        <li><strong>Clone</strong>  -  Erstellt eine Kopie einer bestehenden VM/CT mit anpassbarer Hardware (CPU, RAM, Disk, Netzwerk)</li>
+                        <li><strong>Hardware anpassen</strong>  -  CPU-Kerne, RAM und Swap direkt aendern (erfordert Neustart)</li>
+                        <li><strong>Start/Stop/Reboot</strong>  -  VMs und Container steuern</li>
+                        <li><strong>Netzwerk</strong>  -  Bridge, VLAN, IP-Konfiguration beim Klonen anpassen</li>
                     </ul>
                     <h4>Hinweise:</h4>
                     <ul>
-                        <li>Hardware-Änderungen an laufenden VMs erfordern einen Neustart</li>
-                        <li>Beim Klonen wird die nächste freie VMID automatisch vergeben</li>
-                        <li>Full Clone erstellt eine unabhängige Kopie, Linked Clone teilt die Basis-Disk</li>
+                        <li>Hardware-Aenderungen an laufenden VMs erfordern einen Neustart</li>
+                        <li>Beim Klonen wird die naechste freie VMID automatisch vergeben</li>
+                        <li>Full Clone erstellt eine unabhaengige Kopie, Linked Clone teilt die Basis-Disk</li>
                     </ul>
                 '],
                 ['id' => 'h-firewall', 'icon' => '🛡️', 'title' => 'Firewall Templates', 'content' => '
-                    <p>Vordefinierte Regelsätze für typische Server-Rollen, die per Klick auf VMs/CTs angewendet werden. 18 eingebaute Templates (Mailcow, Webserver, Database, Proxmox, Docker, DNS, WireGuard, Virtualmin Web, Virtualmin Web+Mail, Nginx Proxy, PostgreSQL, Redis, Elasticsearch, Minecraft, TeamSpeak, Nextcloud, Gitea/GitLab, Monitoring) + eigene Custom Templates.</p>
+                    <p>Vordefinierte Regelsaetze für typische Server-Rollen, die per Klick auf VMs/CTs angewendet werden. 18 eingebaute Templates (Mailcow, Webserver, Database, Proxmox, Docker, DNS, WireGuard, Virtualmin Web, Virtualmin Web+Mail, Nginx Proxy, PostgreSQL, Redis, Elasticsearch, Minecraft, TeamSpeak, Nextcloud, Gitea/GitLab, Monitoring) + eigene Custom Templates.</p>
                     <h4>Zwei Firewall-Ebenen:</h4>
                     <ul>
-                        <li><strong>PVE Host-Firewall</strong> (Security Check) — Schützt den Proxmox-Host selbst. Regelt welche Ports von außen erreichbar sind (SSH, WebUI, etc.).</li>
-                        <li><strong>VM/CT Firewall</strong> (Templates) — Schützt einzelne VMs und Container. Jede Maschine bekommt eigene Regeln passend zu ihrer Rolle.</li>
+                        <li><strong>PVE Host-Firewall</strong> (Security Check)  -  Schuetzt den Proxmox-Host selbst. Regelt welche Ports von aussen erreichbar sind (SSH, WebUI, etc.).</li>
+                        <li><strong>VM/CT Firewall</strong> (Templates)  -  Schuetzt einzelne VMs und Container. Jede Maschine bekommt eigene Regeln passend zu ihrer Rolle.</li>
                     </ul>
                     <h4>Wann welche Firewall?</h4>
                     <ul>
-                        <li><strong>CTs mit öffentlicher IP</strong> (gelber Punkt in der IP-Spalte) — Erhalten direkten Traffic aus dem Internet. Die CT-Firewall filtert eingehende Verbindungen direkt am Container.</li>
-                        <li><strong>CTs mit interner IP</strong> (grauer Punkt) — Sind typischerweise hinter Nginx. Die CT-Firewall schützt gegen laterale Angriffe (CT-zu-CT Bewegung im internen Netz).</li>
-                        <li><strong>Nginx-proxied CTs</strong> — Brauchen keine zusätzlichen PVE-Host-Regeln für Port 80/443, da diese bereits auf dem Host offen sind. Die CT-Firewall sollte trotzdem die erlaubten Ports auf das Minimum beschränken.</li>
+                        <li><strong>CTs mit öffentlicher IP</strong> (gelber Punkt in der IP-Spalte)  -  Erhalten direkten Traffic aus dem Internet. Die CT-Firewall filtert eingehende Verbindungen direkt am Container.</li>
+                        <li><strong>CTs mit interner IP</strong> (grauer Punkt)  -  Sind typischerweise hinter Nginx. Die CT-Firewall schuetzt gegen laterale Angriffe (CT-zu-CT Bewegung im internen Netz).</li>
+                        <li><strong>Nginx-proxied CTs</strong>  -  Brauchen keine zusaetzlichen PVE-Host-Regeln für Port 80/443, da diese bereits auf dem Host offen sind. Die CT-Firewall sollte trotzdem die erlaubten Ports auf das Minimum beschraenken.</li>
                     </ul>
                     <h4>Templates anwenden:</h4>
                     <ol>
                         <li>Template-Card anklicken (z.B. "Mailserver", "Webserver")</li>
-                        <li>Im Modal: Regeln prüfen — <strong>Ports und Sources sind editierbar!</strong></li>
-                        <li>Einzelne Regeln per Checkbox an-/abwählen</li>
-                        <li>Ziel-VM/CT aus dem Dropdown wählen</li>
-                        <li>"Anwenden" klicken — Firewall wird aktiviert, Policy auf DROP gesetzt</li>
+                        <li>Im Modal: Regeln pruefen  -  <strong>Ports und Sources sind editierbar!</strong></li>
+                        <li>Einzelne Regeln per Checkbox an-/abwaehlen</li>
+                        <li>Ziel-VM/CT aus dem Dropdown waehlen</li>
+                        <li>"Anwenden" klicken  -  Firewall wird aktiviert, Policy auf DROP gesetzt</li>
                     </ol>
                     <h4>Duplikat-Schutz:</h4>
-                    <p>Bereits vorhandene Regeln werden automatisch erkannt und nicht doppelt angelegt. Wenn ein Template erneut auf eine VM/CT angewendet wird, werden nur fehlende Regeln ergänzt.</p>
+                    <p>Bereits vorhandene Regeln werden automatisch erkannt und nicht doppelt angelegt. Wenn ein Template erneut auf eine VM/CT angewendet wird, werden nur fehlende Regeln ergaenzt.</p>
                     <h4>Custom Templates:</h4>
-                    <p>Über "Eigenes Template" können eigene Regelsätze erstellt, gespeichert und wiederverwendet werden.</p>
+                    <p>Über "Eigenes Template" koennen eigene Regelsaetze erstellt, gespeichert und wiederverwendet werden.</p>
                     <h4>VM/CT Firewall-Tabelle:</h4>
                     <p>Zeigt den Firewall-Status aller VMs/CTs: Aktiv/Inaktiv, Policy, Anzahl Regeln, zugewiesenes Template. Per "ON/OFF" Button kann die Firewall pro Maschine ein-/ausgeschaltet werden.</p>
                     <h4>IP-Spalte:</h4>
@@ -1870,7 +1871,7 @@ body::after {
                     <h4>Wichtig:</h4>
                     <ul>
                         <li>Policy DROP bedeutet: Alles ist blockiert, nur explizit erlaubte Ports sind erreichbar</li>
-                        <li>SSH (Port 22) ist in allen Templates enthalten — Zugriff bleibt gewährleistet</li>
+                        <li>SSH (Port 22) ist in allen Templates enthalten  -  Zugriff bleibt gewaehrleistet</li>
                         <li>Templates gelten nur für VMs/CTs, nicht für den PVE-Host selbst (dafür: Security Check)</li>
                     </ul>
                 '],
@@ -1879,31 +1880,31 @@ body::after {
                     <h4>Port-Scan:</h4>
                     <ul>
                         <li>Zeigt alle offenen TCP-Ports mit Prozess, Adresse und Risikobewertung</li>
-                        <li>Riskante Ports (Redis, MongoDB, MySQL von außen) werden rot markiert</li>
+                        <li>Riskante Ports (Redis, MongoDB, MySQL von aussen) werden rot markiert</li>
                         <li>Per "Blockieren" Button kann ein Port sofort per Firewall-Regel gesperrt werden</li>
                     </ul>
                     <h4>PVE Host-Firewall:</h4>
                     <ul>
-                        <li><strong>Datacenter-Level</strong> — Hauptschalter für die PVE Firewall (muss aktiv sein)</li>
-                        <li><strong>Node-Level</strong> — Firewall auf diesem spezifischen Host</li>
+                        <li><strong>Datacenter-Level</strong>  -  Hauptschalter für die PVE Firewall (muss aktiv sein)</li>
+                        <li><strong>Node-Level</strong>  -  Firewall auf diesem spezifischen Host</li>
                         <li>Beim Aktivieren werden automatisch SSH (22) und PVE WebUI (8006) erlaubt</li>
                     </ul>
                     <h4>Firewall-Regeln:</h4>
-                    <p>Node- und Cluster-Regeln werden gemeinsam angezeigt. Neue Regeln können mit Action (ACCEPT/DROP/REJECT), Richtung, Port, Source und Kommentar erstellt werden.</p>
+                    <p>Node- und Cluster-Regeln werden gemeinsam angezeigt. Neue Regeln koennen mit Action (ACCEPT/DROP/REJECT), Richtung, Port, Source und Kommentar erstellt werden.</p>
                     <h4>Standard-Regeln:</h4>
                     <p>Ein vordefinierter Satz empfohlener Regeln: SSH, PVE WebUI und SPICE erlauben, riskante Dienste blockieren.</p>
                 '],
                 ['id' => 'h-fail2ban', 'icon' => '🔒', 'title' => 'Fail2ban', 'content' => '
-                    <p>Überwacht und verwaltet Fail2ban Jails — automatischer Schutz gegen Brute-Force-Angriffe.</p>
+                    <p>Überwacht und verwaltet Fail2ban Jails  -  automatischer Schutz gegen Brute-Force-Angriffe.</p>
                     <h4>Jail-Übersicht:</h4>
                     <ul>
                         <li>Zeigt alle aktiven Jails mit Anzahl gebannter IPs und fehlgeschlagener Versuche</li>
-                        <li>Gebannte IPs werden aufgelistet und können per Klick entbannt werden</li>
+                        <li>Gebannte IPs werden aufgelistet und koennen per Klick entbannt werden</li>
                     </ul>
                     <h4>Config-Editor:</h4>
-                    <p>Die jail.local und Filter-Konfigurationen können direkt im Browser bearbeitet werden. Nach dem Speichern wird Fail2ban automatisch neu gestartet.</p>
+                    <p>Die jail.local und Filter-Konfigurationen koennen direkt im Browser bearbeitet werden. Nach dem Speichern wird Fail2ban automatisch neu gestartet.</p>
                     <h4>Ban-Log:</h4>
-                    <p>Zeigt die letzten Einträge aus dem Fail2ban-Log mit Zeitstempel, Jail und IP-Adresse.</p>
+                    <p>Zeigt die letzten Eintraege aus dem Fail2ban-Log mit Zeitstempel, Jail und IP-Adresse.</p>
                 '],
                 ['id' => 'h-nginx', 'icon' => '🌐', 'title' => 'Nginx Reverse Proxy', 'content' => '
                     <p>Verwaltet Nginx als Reverse Proxy für interne Container und VMs.</p>
@@ -1911,25 +1912,25 @@ body::after {
                     <ol>
                         <li>Domain eingeben (z.B. app.example.com)</li>
                         <li>Ziel-Adresse angeben (z.B. http://10.10.10.100:80)</li>
-                        <li>"Erstellen" — Nginx-Config wird automatisch generiert</li>
+                        <li>"Erstellen"  -  Nginx-Config wird automatisch generiert</li>
                         <li>SSL per Let\'s Encrypt wird automatisch eingerichtet (Certbot)</li>
                     </ol>
                     <h4>SSL Health Check:</h4>
-                    <p>Der SSL Health Check prüft alle konfigurierten Nginx-Sites automatisch auf häufige Probleme:</p>
+                    <p>Der SSL Health Check prueft alle konfigurierten Nginx-Sites automatisch auf haeufige Probleme:</p>
                     <ul>
-                        <li><strong>DNS A-Record</strong> — Prüft ob ein IPv4-DNS-Eintrag auf die IP dieses Servers zeigt. Ohne korrekten A-Record kann kein SSL-Zertifikat ausgestellt werden.</li>
-                        <li><strong>DNS AAAA-Record</strong> — Prüft ob ein IPv6-DNS-Eintrag existiert und auf diesen Server zeigt. Optional, aber wichtig für IPv6-Erreichbarkeit.</li>
-                        <li><strong>SSL-Zertifikat</strong> — Ist ein gültiges Zertifikat vorhanden? Wann läuft es ab? Abgelaufene oder fehlende Zertifikate werden rot markiert.</li>
-                        <li><strong>Cert-Match</strong> — Stimmt das ausgelieferte Zertifikat mit der Domain überein? Ein Mismatch tritt auf wenn z.B. ein anderes Zertifikat geladen wird.</li>
-                        <li><strong>IPv4/IPv6 Konsistenz</strong> — Werden über IPv4 und IPv6 die gleichen Zertifikate ausgeliefert? Unterschiedliche Zertifikate deuten auf eine Fehlkonfiguration hin.</li>
+                        <li><strong>DNS A-Record</strong>  -  Prüft ob ein IPv4-DNS-Eintrag auf die IP dieses Servers zeigt. Ohne korrekten A-Record kann kein SSL-Zertifikat ausgestellt werden.</li>
+                        <li><strong>DNS AAAA-Record</strong>  -  Prüft ob ein IPv6-DNS-Eintrag existiert und auf diesen Server zeigt. Optional, aber wichtig für IPv6-Erreichbarkeit.</li>
+                        <li><strong>SSL-Zertifikat</strong>  -  Ist ein gueltiges Zertifikat vorhanden? Wann laeuft es ab? Abgelaufene oder fehlende Zertifikate werden rot markiert.</li>
+                        <li><strong>Cert-Match</strong>  -  Stimmt das ausgelieferte Zertifikat mit der Domain überein? Ein Mismatch tritt auf wenn z.B. ein anderes Zertifikat geladen wird.</li>
+                        <li><strong>IPv4/IPv6 Konsistenz</strong>  -  Werden über IPv4 und IPv6 die gleichen Zertifikate ausgeliefert? Unterschiedliche Zertifikate deuten auf eine Fehlkonfiguration hin.</li>
                     </ul>
                     <h4>ipv6only=on Problem:</h4>
-                    <p>Wenn mehrere Nginx-Sites auf Port 443 lauschen, kann es zu einem Konflikt kommen: Nur ein <code>server</code>-Block darf <code>ipv6only=on</code> in der <code>listen [::]:443</code> Direktive haben. Fehlt diese Einstellung oder ist sie bei mehreren Sites gesetzt, liefert Nginx über IPv6 möglicherweise das falsche Zertifikat aus. Der SSL Health Check erkennt dieses Problem und bietet einen <strong>1-Klick Fix</strong> an, der die Nginx-Konfiguration automatisch korrigiert.</p>
+                    <p>Wenn mehrere Nginx-Sites auf Port 443 lauschen, kann es zu einem Konflikt kommen: Nur ein <code>server</code>-Block darf <code>ipv6only=on</code> in der <code>listen [::]:443</code> Direktive haben. Fehlt diese Einstellung oder ist sie bei mehreren Sites gesetzt, liefert Nginx über IPv6 moeglicherweise das falsche Zertifikat aus. Der SSL Health Check erkennt dieses Problem und bietet einen <strong>1-Klick Fix</strong> an, der die Nginx-Konfiguration automatisch korrigiert.</p>
                     <h4>System-Checks:</h4>
                     <p>Prüft Voraussetzungen: IP-Forwarding, NAT/Masquerading, interne Bridge, Nginx-Status, Certbot.</p>
                     <h4>Cloudflare Proxy Support:</h4>
-                    <p>Wenn du Cloudflare als DNS-Proxy (orange Wolke) nutzt, sieht Nginx nur Cloudflare\'s IP statt der echten Client-IP. Das führt zu Problemen mit IP-Whitelists und Logs.</p>
-                    <p><strong>Lösung:</strong> Bei der Installation fragt das Setup-Script ob du Cloudflare nutzt. Wenn ja, wird automatisch eine Config erstellt (<code>/etc/nginx/conf.d/cloudflare-realip.conf</code>) die Nginx anweist, die echte IP aus dem <code>CF-Connecting-IP</code> Header zu lesen.</p>
+                    <p>Wenn du Cloudflare als DNS-Proxy (orange Wolke) nutzt, sieht Nginx nur Cloudflare\'s IP statt der echten Client-IP. Das fuehrt zu Problemen mit IP-Whitelists und Logs.</p>
+                    <p><strong>Loesung:</strong> Bei der Installation fragt das Setup-Script ob du Cloudflare nutzt. Wenn ja, wird automatisch eine Config erstellt (<code>/etc/nginx/conf.d/cloudflare-realip.conf</code>) die Nginx anweist, die echte IP aus dem <code>CF-Connecting-IP</code> Header zu lesen.</p>
                     <h4>Was das bedeutet:</h4>
                     <ul>
                         <li><strong>IP-Whitelists</strong> in Nginx funktionieren korrekt (deine echte IP wird erkannt)</li>
@@ -1938,46 +1939,46 @@ body::after {
                     </ul>
                     <h4>Welche Domains proxied (orange)?</h4>
                     <ul>
-                        <li><strong>Ja:</strong> Webseiten (HTTP/HTTPS) — DDoS-Schutz, IP versteckt</li>
-                        <li><strong>Nein:</strong> Mail (SMTP/IMAP), WireGuard (UDP), PVE WebUI (Port 8006) — diese Protokolle laufen nicht über CF Proxy</li>
+                        <li><strong>Ja:</strong> Webseiten (HTTP/HTTPS)  -  DDoS-Schutz, IP versteckt</li>
+                        <li><strong>Nein:</strong> Mail (SMTP/IMAP), WireGuard (UDP), PVE WebUI (Port 8006)  -  diese Protokolle laufen nicht über CF Proxy</li>
                     </ul>
-                    <p><strong>Tipp:</strong> Die Cloudflare IP-Ranges ändern sich selten, sollten aber ~1x jährlich aktualisiert werden. Aktuelle Listen: <code>cloudflare.com/ips-v4</code> und <code>cloudflare.com/ips-v6</code></p>
+                    <p><strong>Tipp:</strong> Die Cloudflare IP-Ranges aendern sich selten, sollten aber ~1x jaehrlich aktualisiert werden. Aktuelle Listen: <code>cloudflare.com/ips-v4</code> und <code>cloudflare.com/ips-v6</code></p>
                 '],
                 ['id' => 'h-zfs', 'icon' => '💾', 'title' => 'ZFS Storage', 'content' => '
                     <p>Verwaltung von ZFS-Pools, Datasets und Snapshots.</p>
                     <h4>Pools & Datasets:</h4>
                     <ul>
-                        <li>Zeigt alle ZFS-Pools mit Größe, Belegung und Health-Status</li>
+                        <li>Zeigt alle ZFS-Pools mit Groesse, Belegung und Health-Status</li>
                         <li>Datasets mit Quota, Kompression und Mountpoint</li>
                     </ul>
                     <h4>Snapshots:</h4>
                     <ul>
-                        <li><strong>Erstellen</strong> — Manueller Snapshot eines Datasets</li>
-                        <li><strong>Rollback</strong> — Dataset auf einen früheren Snapshot zurücksetzen</li>
-                        <li><strong>Clone</strong> — Neues Dataset aus einem Snapshot erstellen</li>
-                        <li><strong>Löschen</strong> — Alte Snapshots entfernen</li>
+                        <li><strong>Erstellen</strong>  -  Manueller Snapshot eines Datasets</li>
+                        <li><strong>Rollback</strong>  -  Dataset auf einen früheren Snapshot zurücksetzen</li>
+                        <li><strong>Clone</strong>  -  Neues Dataset aus einem Snapshot erstellen</li>
+                        <li><strong>Loeschen</strong>  -  Alte Snapshots entfernen</li>
                     </ul>
                     <h4>Auto-Snapshots:</h4>
                     <p>Automatische Snapshots mit konfigurierbarer Retention (stündlich, täglich, wöchentlich). Wird über Cron-Jobs gesteuert.</p>
                     <h4>Hinweise:</h4>
                     <ul>
-                        <li>Rollback löscht alle neueren Snapshots!</li>
-                        <li>ZFS Kompression (lz4) spart Speicherplatz ohne Performance-Einbußen</li>
+                        <li>Rollback loescht alle neueren Snapshots!</li>
+                        <li>ZFS Kompression (lz4) spart Speicherplatz ohne Performance-Einbussen</li>
                     </ul>
                 '],
                 ['id' => 'h-wireguard', 'icon' => '🔐', 'title' => 'WireGuard VPN', 'content' => '
                     <p>Einrichtung und Verwaltung von WireGuard VPN-Tunneln.</p>
                     <h4>Tunnel-Wizard:</h4>
                     <ol>
-                        <li>Interface-Name und Port wählen</li>
+                        <li>Interface-Name und Port waehlen</li>
                         <li>Subnetz konfigurieren (z.B. 10.10.20.0/24)</li>
                         <li>Peer hinzufügen (Remote-Seite)</li>
-                        <li>Config wird automatisch generiert — Remote-Config zum Kopieren</li>
+                        <li>Config wird automatisch generiert  -  Remote-Config zum Kopieren</li>
                     </ol>
                     <h4>Live-Traffic:</h4>
                     <p>Echtzeit-Graph zeigt ein-/ausgehenden Traffic pro Tunnel mit RX/TX Werten.</p>
                     <h4>Config-Editor:</h4>
-                    <p>WireGuard-Konfigurationen können direkt bearbeitet werden. Firewall-Regeln für den WireGuard-Port werden automatisch vorgeschlagen.</p>
+                    <p>WireGuard-Konfigurationen koennen direkt bearbeitet werden. Firewall-Regeln für den WireGuard-Port werden automatisch vorgeschlagen.</p>
                     <h4>Typische Einsatzszenarien:</h4>
                     <ul>
                         <li>Sichere Verbindung zwischen Büro/Homeoffice und Dedicated Server</li>
@@ -1991,8 +1992,8 @@ body::after {
                     <h4>System-Updates:</h4>
                     <ul>
                         <li>Zeigt verfügbare Paket-Updates mit Version und Repository</li>
-                        <li>"Alle installieren" führt apt update + upgrade durch</li>
-                        <li>Einzelne Pakete können ausgewählt werden</li>
+                        <li>"Alle installieren" fuehrt apt update + upgrade durch</li>
+                        <li>Einzelne Pakete koennen ausgewaehlt werden</li>
                     </ul>
                     <h4>Repositories:</h4>
                     <p>Zeigt konfigurierte APT-Repositories (PVE Enterprise, No-Subscription, Ceph etc.).</p>
@@ -2002,15 +2003,15 @@ body::after {
                     <p>Optionales automatisches Update zu einem konfigurierbaren Zeitpunkt (Tag + Uhrzeit).</p>
                 '],
                 ['id' => 'h-navigation', 'icon' => '📑', 'title' => 'Navigation & Aufbau', 'content' => '
-                    <p>Die Navigation ist in 6 Gruppen-Tabs organisiert, um zusammengehörige Funktionen übersichtlich zu bündeln:</p>
+                    <p>Die Navigation ist in 6 Gruppen-Tabs organisiert, um zusammengehoerige Funktionen übersichtlich zu buendeln:</p>
                     <h4>Tab-Gruppen:</h4>
                     <ul>
-                        <li><strong>Dashboard</strong> — Server-Übersicht mit Live-Charts und Stat-Cards</li>
-                        <li><strong>VMs/CTs</strong> — Alle virtuellen Maschinen und Container mit IP-Anzeige und Template-Zuweisung</li>
-                        <li><strong>Security</strong> — Enthält: Firewall Templates, Security Check (Port-Scanner + PVE Host-Firewall) und Fail2ban</li>
-                        <li><strong>Network</strong> — Enthält: Nginx Reverse Proxy (mit SSL Health Check) und WireGuard VPN</li>
-                        <li><strong>System</strong> — Enthält: ZFS Storage und System-Updates/Repositories</li>
-                        <li><strong>Help</strong> — Diese Hilfe-Seite mit Suchfunktion</li>
+                        <li><strong>Dashboard</strong>  -  Server-Übersicht mit Live-Charts und Stat-Cards</li>
+                        <li><strong>VMs/CTs</strong>  -  Alle virtuellen Maschinen und Container mit IP-Anzeige und Template-Zuweisung</li>
+                        <li><strong>Security</strong>  -  Enthaelt: Firewall Templates, Security Check (Port-Scanner + PVE Host-Firewall) und Fail2ban</li>
+                        <li><strong>Network</strong>  -  Enthaelt: Nginx Reverse Proxy (mit SSL Health Check) und WireGuard VPN</li>
+                        <li><strong>System</strong>  -  Enthaelt: ZFS Storage und System-Updates/Repositories</li>
+                        <li><strong>Help</strong>  -  Diese Hilfe-Seite mit Suchfunktion</li>
                     </ul>
                     <h4>Allgemein:</h4>
                     <ul>
@@ -2024,12 +2025,12 @@ body::after {
                 ['id' => 'h-dashboard', 'icon' => '📊', 'title' => 'Dashboard', 'content' => '
                     <p>The dashboard shows a real-time overview of your server:</p>
                     <ul>
-                        <li><strong>CPU Usage</strong> — Current processor load in percent with live graph</li>
-                        <li><strong>RAM Usage</strong> — Used/Total memory</li>
-                        <li><strong>Disk Usage</strong> — Storage per partition</li>
-                        <li><strong>Network Traffic</strong> — In/outbound traffic per second</li>
-                        <li><strong>Uptime</strong> — How long the server has been running</li>
-                        <li><strong>Load Average</strong> — System load (1/5/15 minutes)</li>
+                        <li><strong>CPU Usage</strong>  -  Current processor load in percent with live graph</li>
+                        <li><strong>RAM Usage</strong>  -  Used/Total memory</li>
+                        <li><strong>Disk Usage</strong>  -  Storage per partition</li>
+                        <li><strong>Network Traffic</strong>  -  In/outbound traffic per second</li>
+                        <li><strong>Uptime</strong>  -  How long the server has been running</li>
+                        <li><strong>Load Average</strong>  -  System load (1/5/15 minutes)</li>
                     </ul>
                     <p>Statistics refresh automatically every few seconds. The stat cards at the top show summaries for VMs/CTs, Fail2ban jails, Nginx sites and open ports.</p>
                 '],
@@ -2037,10 +2038,10 @@ body::after {
                     <p>Management of all virtual machines and LXC containers on this PVE host.</p>
                     <h4>Features:</h4>
                     <ul>
-                        <li><strong>Clone</strong> — Create a copy of an existing VM/CT with customizable hardware (CPU, RAM, Disk, Network)</li>
-                        <li><strong>Hardware Adjust</strong> — Change CPU cores, RAM and swap directly (requires restart)</li>
-                        <li><strong>Start/Stop/Reboot</strong> — Control VMs and containers</li>
-                        <li><strong>Network</strong> — Configure bridge, VLAN, IP when cloning</li>
+                        <li><strong>Clone</strong>  -  Create a copy of an existing VM/CT with customizable hardware (CPU, RAM, Disk, Network)</li>
+                        <li><strong>Hardware Adjust</strong>  -  Change CPU cores, RAM and swap directly (requires restart)</li>
+                        <li><strong>Start/Stop/Reboot</strong>  -  Control VMs and containers</li>
+                        <li><strong>Network</strong>  -  Configure bridge, VLAN, IP when cloning</li>
                     </ul>
                     <h4>Notes:</h4>
                     <ul>
@@ -2053,22 +2054,22 @@ body::after {
                     <p>Predefined rule sets for common server roles that can be applied to VMs/CTs with one click. 18 built-in templates (Mailcow, Webserver, Database, Proxmox, Docker, DNS, WireGuard, Virtualmin Web, Virtualmin Web+Mail, Nginx Proxy, PostgreSQL, Redis, Elasticsearch, Minecraft, TeamSpeak, Nextcloud, Gitea/GitLab, Monitoring) plus custom templates.</p>
                     <h4>Two Firewall Levels:</h4>
                     <ul>
-                        <li><strong>PVE Host Firewall</strong> (Security Check) — Protects the Proxmox host itself. Controls which ports are reachable from the internet (SSH, WebUI, etc.).</li>
-                        <li><strong>VM/CT Firewall</strong> (Templates) — Protects individual VMs and containers. Each machine gets its own rules matching its role.</li>
+                        <li><strong>PVE Host Firewall</strong> (Security Check)  -  Protects the Proxmox host itself. Controls which ports are reachable from the internet (SSH, WebUI, etc.).</li>
+                        <li><strong>VM/CT Firewall</strong> (Templates)  -  Protects individual VMs and containers. Each machine gets its own rules matching its role.</li>
                     </ul>
                     <h4>When to Use Which Firewall?</h4>
                     <ul>
-                        <li><strong>CTs with public IP</strong> (yellow dot in the IP column) — Receive direct traffic from the internet. The CT firewall filters incoming connections directly at the container.</li>
-                        <li><strong>CTs with internal IP</strong> (gray dot) — Typically sit behind Nginx. The CT firewall protects against lateral movement (CT-to-CT traffic within the internal network).</li>
-                        <li><strong>Nginx-proxied CTs</strong> — Do not need additional PVE host rules for ports 80/443, as those are already open on the host. However, the CT firewall should still restrict allowed ports to a minimum.</li>
+                        <li><strong>CTs with public IP</strong> (yellow dot in the IP column)  -  Receive direct traffic from the internet. The CT firewall filters incoming connections directly at the container.</li>
+                        <li><strong>CTs with internal IP</strong> (gray dot)  -  Typically sit behind Nginx. The CT firewall protects against lateral movement (CT-to-CT traffic within the internal network).</li>
+                        <li><strong>Nginx-proxied CTs</strong>  -  Do not need additional PVE host rules for ports 80/443, as those are already open on the host. However, the CT firewall should still restrict allowed ports to a minimum.</li>
                     </ul>
                     <h4>Applying Templates:</h4>
                     <ol>
                         <li>Click a template card (e.g. "Mailserver", "Webserver")</li>
-                        <li>In the modal: Review rules — <strong>ports and sources are editable!</strong></li>
+                        <li>In the modal: Review rules  -  <strong>ports and sources are editable!</strong></li>
                         <li>Enable/disable individual rules via checkboxes</li>
                         <li>Select target VM/CT from dropdown</li>
-                        <li>Click "Apply" — Firewall is enabled, policy set to DROP</li>
+                        <li>Click "Apply"  -  Firewall is enabled, policy set to DROP</li>
                     </ol>
                     <h4>Duplicate Protection:</h4>
                     <p>Existing rules are automatically detected and not created twice. When re-applying a template to a VM/CT, only missing rules are added.</p>
@@ -2081,7 +2082,7 @@ body::after {
                     <h4>Important:</h4>
                     <ul>
                         <li>Policy DROP means: Everything is blocked, only explicitly allowed ports are reachable</li>
-                        <li>SSH (port 22) is included in all templates — access is always maintained</li>
+                        <li>SSH (port 22) is included in all templates  -  access is always maintained</li>
                         <li>Templates only apply to VMs/CTs, not the PVE host itself (for that: Security Check)</li>
                     </ul>
                 '],
@@ -2095,8 +2096,8 @@ body::after {
                     </ul>
                     <h4>PVE Host Firewall:</h4>
                     <ul>
-                        <li><strong>Datacenter Level</strong> — Main switch for the PVE Firewall (must be active)</li>
-                        <li><strong>Node Level</strong> — Firewall on this specific host</li>
+                        <li><strong>Datacenter Level</strong>  -  Main switch for the PVE Firewall (must be active)</li>
+                        <li><strong>Node Level</strong>  -  Firewall on this specific host</li>
                         <li>When enabling, SSH (22) and PVE WebUI (8006) are automatically allowed</li>
                     </ul>
                     <h4>Firewall Rules:</h4>
@@ -2105,7 +2106,7 @@ body::after {
                     <p>A predefined set of recommended rules: Allow SSH, PVE WebUI and SPICE, block risky services.</p>
                 '],
                 ['id' => 'h-fail2ban', 'icon' => '🔒', 'title' => 'Fail2ban', 'content' => '
-                    <p>Monitors and manages Fail2ban jails — automatic protection against brute-force attacks.</p>
+                    <p>Monitors and manages Fail2ban jails  -  automatic protection against brute-force attacks.</p>
                     <h4>Jail Overview:</h4>
                     <ul>
                         <li>Shows all active jails with banned IP count and failed attempts</li>
@@ -2122,17 +2123,17 @@ body::after {
                     <ol>
                         <li>Enter domain (e.g. app.example.com)</li>
                         <li>Set target address (e.g. http://10.10.10.100:80)</li>
-                        <li>"Create" — Nginx config is automatically generated</li>
+                        <li>"Create"  -  Nginx config is automatically generated</li>
                         <li>SSL via Let\'s Encrypt is set up automatically (Certbot)</li>
                     </ol>
                     <h4>SSL Health Check:</h4>
                     <p>The SSL Health Check automatically inspects all configured Nginx sites for common issues:</p>
                     <ul>
-                        <li><strong>DNS A Record</strong> — Checks if an IPv4 DNS entry points to this server\'s IP. Without a correct A record, no SSL certificate can be issued.</li>
-                        <li><strong>DNS AAAA Record</strong> — Checks if an IPv6 DNS entry exists and points to this server. Optional but important for IPv6 reachability.</li>
-                        <li><strong>SSL Certificate</strong> — Is a valid certificate present? When does it expire? Expired or missing certificates are highlighted in red.</li>
-                        <li><strong>Cert Match</strong> — Does the served certificate match the domain? A mismatch occurs when e.g. a different certificate is loaded.</li>
-                        <li><strong>IPv4/IPv6 Consistency</strong> — Are the same certificates served over IPv4 and IPv6? Different certificates indicate a misconfiguration.</li>
+                        <li><strong>DNS A Record</strong>  -  Checks if an IPv4 DNS entry points to this server\'s IP. Without a correct A record, no SSL certificate can be issued.</li>
+                        <li><strong>DNS AAAA Record</strong>  -  Checks if an IPv6 DNS entry exists and points to this server. Optional but important for IPv6 reachability.</li>
+                        <li><strong>SSL Certificate</strong>  -  Is a valid certificate present? When does it expire? Expired or missing certificates are highlighted in red.</li>
+                        <li><strong>Cert Match</strong>  -  Does the served certificate match the domain? A mismatch occurs when e.g. a different certificate is loaded.</li>
+                        <li><strong>IPv4/IPv6 Consistency</strong>  -  Are the same certificates served over IPv4 and IPv6? Different certificates indicate a misconfiguration.</li>
                     </ul>
                     <h4>ipv6only=on Issue:</h4>
                     <p>When multiple Nginx sites listen on port 443, a conflict can occur: only one <code>server</code> block may have <code>ipv6only=on</code> in its <code>listen [::]:443</code> directive. If this setting is missing or set on multiple sites, Nginx may serve the wrong certificate over IPv6. The SSL Health Check detects this issue and offers a <strong>1-click fix</strong> that automatically corrects the Nginx configuration.</p>
@@ -2149,8 +2150,8 @@ body::after {
                     </ul>
                     <h4>Which domains to proxy (orange)?</h4>
                     <ul>
-                        <li><strong>Yes:</strong> Websites (HTTP/HTTPS) — DDoS protection, IP hidden</li>
-                        <li><strong>No:</strong> Mail (SMTP/IMAP), WireGuard (UDP), PVE WebUI (port 8006) — these protocols don\'t work through CF Proxy</li>
+                        <li><strong>Yes:</strong> Websites (HTTP/HTTPS)  -  DDoS protection, IP hidden</li>
+                        <li><strong>No:</strong> Mail (SMTP/IMAP), WireGuard (UDP), PVE WebUI (port 8006)  -  these protocols don\'t work through CF Proxy</li>
                     </ul>
                     <p><strong>Tip:</strong> Cloudflare IP ranges rarely change but should be updated ~once a year. Current lists: <code>cloudflare.com/ips-v4</code> and <code>cloudflare.com/ips-v6</code></p>
                 '],
@@ -2163,10 +2164,10 @@ body::after {
                     </ul>
                     <h4>Snapshots:</h4>
                     <ul>
-                        <li><strong>Create</strong> — Manual snapshot of a dataset</li>
-                        <li><strong>Rollback</strong> — Revert dataset to a previous snapshot</li>
-                        <li><strong>Clone</strong> — Create new dataset from a snapshot</li>
-                        <li><strong>Delete</strong> — Remove old snapshots</li>
+                        <li><strong>Create</strong>  -  Manual snapshot of a dataset</li>
+                        <li><strong>Rollback</strong>  -  Revert dataset to a previous snapshot</li>
+                        <li><strong>Clone</strong>  -  Create new dataset from a snapshot</li>
+                        <li><strong>Delete</strong>  -  Remove old snapshots</li>
                     </ul>
                     <h4>Auto-Snapshots:</h4>
                     <p>Automatic snapshots with configurable retention (hourly, daily, weekly). Managed via cron jobs.</p>
@@ -2183,7 +2184,7 @@ body::after {
                         <li>Choose interface name and port</li>
                         <li>Configure subnet (e.g. 10.10.20.0/24)</li>
                         <li>Add peer (remote side)</li>
-                        <li>Config is automatically generated — remote config ready to copy</li>
+                        <li>Config is automatically generated  -  remote config ready to copy</li>
                     </ol>
                     <h4>Live Traffic:</h4>
                     <p>Real-time graph shows in/outbound traffic per tunnel with RX/TX values.</p>
@@ -2216,12 +2217,12 @@ body::after {
                     <p>The navigation is organized into 6 grouped tabs to keep related features together:</p>
                     <h4>Tab Groups:</h4>
                     <ul>
-                        <li><strong>Dashboard</strong> — Server overview with live charts and stat cards</li>
-                        <li><strong>VMs/CTs</strong> — All virtual machines and containers with IP display and template assignment</li>
-                        <li><strong>Security</strong> — Contains: Firewall Templates, Security Check (port scanner + PVE host firewall) and Fail2ban</li>
-                        <li><strong>Network</strong> — Contains: Nginx Reverse Proxy (with SSL Health Check) and WireGuard VPN</li>
-                        <li><strong>System</strong> — Contains: ZFS Storage and System Updates/Repositories</li>
-                        <li><strong>Help</strong> — This help page with search</li>
+                        <li><strong>Dashboard</strong>  -  Server overview with live charts and stat cards</li>
+                        <li><strong>VMs/CTs</strong>  -  All virtual machines and containers with IP display and template assignment</li>
+                        <li><strong>Security</strong>  -  Contains: Firewall Templates, Security Check (port scanner + PVE host firewall) and Fail2ban</li>
+                        <li><strong>Network</strong>  -  Contains: Nginx Reverse Proxy (with SSL Health Check) and WireGuard VPN</li>
+                        <li><strong>System</strong>  -  Contains: ZFS Storage and System Updates/Repositories</li>
+                        <li><strong>Help</strong>  -  This help page with search</li>
                     </ul>
                     <h4>General:</h4>
                     <ul>
@@ -2569,7 +2570,7 @@ foreach ($defaultRules as $i => $r):
             <div style="background:rgba(64,196,255,.04);border:1px solid rgba(64,196,255,.1);border-radius:6px;padding:8px 12px;margin-bottom:14px;font-size:.68rem;color:var(--text2);line-height:1.5">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2" style="margin-right:4px;vertical-align:middle"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
                 <?= $lang === 'de'
-                    ? 'Config-Datei (.conf) eines anderen WireGuard-Servers einfügen oder hochladen. Die Datei wird unter /etc/wireguard/ gespeichert.'
+                    ? 'Config-Datei (.conf) eines anderen WireGuard-Servers einfuegen oder hochladen. Die Datei wird unter /etc/wireguard/ gespeichert.'
                     : 'Paste or upload a config file (.conf) from another WireGuard server. It will be saved to /etc/wireguard/.' ?>
             </div>
             <div class="form-row">
@@ -2613,6 +2614,19 @@ AllowedIPs = ..."></textarea>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                 <?= $lang === 'de' ? 'Importieren' : 'Import' ?>
             </button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="wgLxcRouteModal">
+    <div class="modal" style="max-width:760px">
+        <div class="modal-head">
+            <div class="modal-title">LXC Reachability Fix</div>
+            <button class="modal-close" onclick="closeModal('wgLxcRouteModal')">&times;</button>
+        </div>
+        <div class="modal-body" id="wgLxcRouteBody"></div>
+        <div class="modal-foot">
+            <button class="btn" onclick="closeModal('wgLxcRouteModal')"><?= $lang === 'de' ? 'Schließen' : 'Close' ?></button>
         </div>
     </div>
 </div>
@@ -2755,17 +2769,17 @@ const LANG = '<?= $lang ?>';
 const T = <?= json_encode($t, JSON_UNESCAPED_UNICODE) ?>;
 </script>
 
-<!-- JS-Module — aufgeteilt nach Feature -->
-<script src="js/core.js"></script>
-<script src="js/dashboard.js"></script>
-<script src="js/fail2ban.js"></script>
-<script src="js/nginx.js"></script>
-<script src="js/vms.js"></script>
-<script src="js/zfs.js"></script>
-<script src="js/wireguard.js"></script>
-<script src="js/security.js"></script>
-<script src="js/firewall.js"></script>
-<script src="js/updates.js"></script>
+<!-- JS-Module  -  aufgeteilt nach Feature -->
+<script src="js/core.js?v=<?= APP_VERSION ?>"></script>
+<script src="js/dashboard.js?v=<?= APP_VERSION ?>"></script>
+<script src="js/fail2ban.js?v=<?= APP_VERSION ?>"></script>
+<script src="js/nginx.js?v=<?= APP_VERSION ?>"></script>
+<script src="js/vms.js?v=<?= APP_VERSION ?>"></script>
+<script src="js/zfs.js?v=<?= APP_VERSION ?>"></script>
+<script src="js/wireguard.js?v=<?= APP_VERSION ?>"></script>
+<script src="js/security.js?v=<?= APP_VERSION ?>"></script>
+<script src="js/firewall.js?v=<?= APP_VERSION ?>"></script>
+<script src="js/updates.js?v=<?= APP_VERSION ?>"></script>
 
 <div style="position:fixed;bottom:0;left:0;right:0;z-index:50;border-top:1px solid rgba(255,255,255,.04);background:rgba(5,8,16,.85);backdrop-filter:blur(12px)">
     <div style="max-width:1320px;margin:0 auto;padding:18px 32px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">

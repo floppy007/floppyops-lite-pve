@@ -84,6 +84,22 @@ require_dir() {
     [[ -d "$dir" ]] || { fail "Pflichtverzeichnis fehlt: $dir"; exit 1; }
 }
 
+ensure_sudoers_line() {
+    local line="$1"
+    local sudoers_file="/etc/sudoers.d/server-admin"
+
+    if ! run_root_cmd true 2>/dev/null; then
+        warn "Sudoers-Update uebersprungen (kein root/sudo ohne Passwort)"
+        return 0
+    fi
+
+    run_root_cmd mkdir -p /etc/sudoers.d
+    run_root_cmd touch "$sudoers_file"
+    if ! run_root_cmd grep -qF "$line" "$sudoers_file" 2>/dev/null; then
+        printf '%s\n' "$line" | run_root_cmd tee -a "$sudoers_file" >/dev/null
+    fi
+}
+
 install_pam_helper() {
     local source="$INSTALL_DIR/helpers/pam_auth.py"
     [[ -f "$source" ]] || return 0
@@ -124,6 +140,17 @@ PAMEOF
     run_root_cmd chmod 440 /etc/sudoers.d/server-admin
     run_root_cmd visudo -cf /etc/sudoers.d/server-admin >/dev/null
     ok "Sudoers fuer PAM-Helper aktualisiert"
+}
+
+install_lxc_route_fix_sudoers() {
+    ensure_sudoers_line "www-data ALL=(root) NOPASSWD: /usr/sbin/pct list"
+    ensure_sudoers_line "www-data ALL=(root) NOPASSWD: /usr/sbin/pct config *"
+    ensure_sudoers_line "www-data ALL=(root) NOPASSWD: /usr/sbin/pct exec *"
+    if run_root_cmd true 2>/dev/null; then
+        run_root_cmd chmod 440 /etc/sudoers.d/server-admin
+        run_root_cmd visudo -cf /etc/sudoers.d/server-admin >/dev/null
+        ok "Sudoers fuer LXC Reachability aktualisiert"
+    fi
 }
 
 set_permissions() {
@@ -245,6 +272,7 @@ ok "Dateien vollstaendig synchronisiert"
 
 info "config.php bleibt unveraendert"
 install_pam_helper
+install_lxc_route_fix_sudoers
 reload_php_fpm
 
 # ── Ergebnis ─────────────────────────────────────────────

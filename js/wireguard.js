@@ -10,6 +10,8 @@ let wgLastBytes = null;
 let wgGraphTimer = null;
 let wgPollCount = 0;
 let wgStatusTimer = null;
+let _wgStatusCache = [];
+let _wgLxcLastRoutes = '';
 
 function fmtSpeed(b) {
     if (b < 1024) return b.toFixed(0) + ' B/s';
@@ -166,6 +168,7 @@ function stopWgGraph() {
 async function loadWg() {
     try {
         const data = await api('wg-status');
+        _wgStatusCache = Array.isArray(data) ? data : [];
         document.getElementById('wgCount').textContent = data.length;
         const grid = document.getElementById('wgGrid');
         grid.innerHTML = '';
@@ -315,12 +318,176 @@ async function loadWg() {
         // Show restart banner if any interface has pending config changes
         const needsRestart = data.find(i => i.needs_restart);
         if (needsRestart) {
-            wgShowRestartBanner(needsRestart.name, needsRestart.name + ' — Config geändert seit letztem Start. Restart empfohlen.');
+            wgShowRestartBanner(needsRestart.name, needsRestart.name + ' - Config geändert seit letztem Start. Restart empfohlen.');
         } else {
             const banner = document.getElementById('wgRestartBanner');
             if (banner) banner.style.display = 'none';
         }
     } catch (e) {
+    }
+}
+
+function wgSuggestedReachabilityRoutes(ifaceName) {
+    const iface = (_wgStatusCache || []).find(x => x.name === ifaceName);
+    if (!iface) return [];
+    const routes = new Set();
+    (iface.peers || []).forEach(peer => {
+        String(peer.allowed_ips || '')
+            .split(',')
+            .map(s => s.trim())
+            .forEach(route => {
+                if (!route || route.endsWith('/32')) return;
+                routes.add(route);
+            });
+    });
+    return Array.from(routes);
+}
+
+function wgOpenLxcRouteModal() {
+    const ifaceOptions = (_wgStatusCache || []).map(iface =>
+        `<option value="${iface.name}">${iface.name}${iface.address ? ' - ' + iface.address : ''}</option>`
+    ).join('');
+    const firstIface = (_wgStatusCache[0] || {}).name || '';
+    const presetRoutes = wgSuggestedReachabilityRoutes(firstIface).join(', ');
+    _wgLxcLastRoutes = presetRoutes;
+
+    document.getElementById('wgLxcRouteBody').innerHTML = `
+        <div style="background:rgba(64,196,255,.04);border:1px solid rgba(64,196,255,.12);border-radius:6px;padding:10px 12px;margin-bottom:14px;font-size:.7rem;color:var(--text2);line-height:1.6">
+            Prüft laufende LXC-Container auf fehlende Rückrouten für Tunnel-Netze und trägt die Routen auf Wunsch direkt in <span style="font-family:var(--mono)">/etc/network/interfaces</span> ein.
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label">WireGuard Interface</label>
+                <select class="form-input" id="wgLxcIface" onchange="wgLxcRoutesUsePreset()">${ifaceOptions || '<option value="">Kein Interface</option>'}</select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Persistenz</label>
+                <label class="form-check" style="margin-top:10px">
+                    <input type="checkbox" id="wgLxcPersist" checked>
+                    Route dauerhaft in /etc/network/interfaces eintragen
+                </label>
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Tunnel-Zielnetze</label>
+            <input class="form-input" id="wgLxcRoutes" value="${presetRoutes}" placeholder="10.10.20.0/24, 192.168.10.0/24">
+            <div class="form-hint">Netze, für die CTs eine Rückroute über ihr internes Interface brauchen.</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+            <button class="btn btn-sm" onclick="wgLxcRoutesUsePreset()">Tunnel-Routen übernehmen</button>
+            <button class="btn btn-sm btn-accent" onclick="wgScanLxcRoutes()">LXC-Check starten</button>
+        </div>
+        <div id="wgLxcRouteResults" style="font-size:.74rem;color:var(--text3)">Noch kein Check gelaufen.</div>
+    `;
+    openModal('wgLxcRouteModal');
+}
+
+function wgLxcRoutesUsePreset() {
+    const iface = document.getElementById('wgLxcIface')?.value || '';
+    const routes = wgSuggestedReachabilityRoutes(iface).join(', ');
+    document.getElementById('wgLxcRoutes').value = routes;
+    _wgLxcLastRoutes = routes;
+}
+
+function wgRenderLxcRouteResults(containers, routes) {
+    const box = document.getElementById('wgLxcRouteResults');
+    if (!containers.length) {
+        box.innerHTML = '<div class="empty">Keine laufenden LXC-Container gefunden</div>';
+        return;
+    }
+
+    box.innerHTML = containers.map(ct => {
+        const target = ct.route_target || null;
+        const missing = Array.isArray(ct.missing_routes) ? ct.missing_routes : [];
+        const status = missing.length === 0
+            ? '<span class="tag tag-green">OK</span>'
+            : (ct.fixable ? '<span class="tag tag-yellow">Fix möglich</span>' : '<span class="tag tag-red">Manuell prüfen</span>');
+        const routeLines = (ct.recommended_lines || []).map(line =>
+            `<div style="font-family:var(--mono);font-size:.68rem;color:var(--text2)">${line}</div>`
+        ).join('');
+        return `
+            <div style="background:var(--surface);border:1px solid var(--border-subtle);border-radius:8px;padding:12px 14px;margin-bottom:10px">
+                <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:8px">
+                    <div>
+                        <div style="font-weight:700">${ct.vmid} - ${ct.name || 'LXC'}</div>
+                        <div style="font-size:.68rem;color:var(--text3)">
+                            Default: <span style="font-family:var(--mono)">${ct.default_iface || '---'}</span>
+                            | Intern: <span style="font-family:var(--mono)">${target ? target.iface + ' via ' + target.gateway : '---'}</span>
+                            | Dual-homed: ${ct.dual_homed ? 'ja' : 'nein'}
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center">
+                        ${status}
+                        ${ct.fixable ? `<button class="btn btn-sm btn-accent" onclick="wgApplyLxcRouteFix(${ct.vmid})">Fix anwenden</button>` : ''}
+                    </div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                    <div>
+                        <div style="font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Fehlende Routen</div>
+                        <div style="font-family:var(--mono);font-size:.72rem;color:${missing.length ? 'var(--yellow)' : 'var(--green)'}">${missing.length ? missing.join(', ') : 'Keine'}</div>
+                    </div>
+                    <div>
+                        <div style="font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Persistenz</div>
+                        <div style="font-size:.72rem;color:${ct.persistent_supported ? 'var(--green)' : 'var(--red)'}">${ct.persistent_supported ? '/etc/network/interfaces erkannt' : 'nur Live-Route möglich'}</div>
+                    </div>
+                </div>
+                ${routeLines ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border-subtle)">${routeLines}</div>` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+async function wgScanLxcRoutes() {
+    const routes = (document.getElementById('wgLxcRoutes')?.value || '').trim();
+    if (!routes) {
+        toast('Tunnel-Zielnetze erforderlich', 'error');
+        return;
+    }
+    _wgLxcLastRoutes = routes;
+    const box = document.getElementById('wgLxcRouteResults');
+    box.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:center;gap:12px;padding:18px 14px;border:1px solid var(--border-subtle);border-radius:8px;background:rgba(64,196,255,.04);color:var(--text2)">
+            <span class="loading-spinner" style="width:18px;height:18px;border-width:2px;flex:0 0 auto"></span>
+            <span style="font-size:.82rem;font-weight:600">Prüfe laufende LXC-Container...</span>
+        </div>
+    `;
+    try {
+        const res = await api('wg-lxc-route-audit&routes=' + encodeURIComponent(routes));
+        if (!res.ok) {
+            toast(res.error || 'Prüfung fehlgeschlagen', 'error');
+            box.textContent = res.error || 'Prüfung fehlgeschlagen';
+            return;
+        }
+        wgRenderLxcRouteResults(res.containers || [], res.routes || []);
+    } catch (e) {
+        toast('Fehler: ' + e.message, 'error');
+        box.textContent = 'Prüfung fehlgeschlagen';
+    }
+}
+
+async function wgApplyLxcRouteFix(vmid) {
+    const routes = _wgLxcLastRoutes || (document.getElementById('wgLxcRoutes')?.value || '').trim();
+    const persist = document.getElementById('wgLxcPersist')?.checked ? '1' : '0';
+    if (!routes) {
+        toast('Tunnel-Zielnetze erforderlich', 'error');
+        return;
+    }
+    const ok = await appConfirm(
+        'LXC Reachability Fix',
+        `Rückrouten in LXC ${vmid} anwenden?\n\nNetze: ${routes}\nPersistenz: ${persist === '1' ? 'ja' : 'nein'}`
+    );
+    if (!ok) return;
+
+    try {
+        const res = await api('wg-lxc-route-fix', 'POST', { vmid, routes, persist });
+        if (!res.ok) {
+            toast(res.error || 'Fix fehlgeschlagen', 'error');
+            return;
+        }
+        toast(res.message || 'Routen angewendet');
+        await wgScanLxcRoutes();
+    } catch (e) {
+        toast('Fehler: ' + e.message, 'error');
     }
 }
 
@@ -393,7 +560,7 @@ async function wgEditIfaceSave() {
             toast('Interface gespeichert');
             closeModal('wgEditIfaceModal');
             loadWg();
-            wgShowRestartBanner(iface, iface + ' — Interface geändert. Restart empfohlen.');
+            wgShowRestartBanner(iface, iface + ' - Interface geändert. Restart empfohlen.');
         } else {
             toast(res.error || 'Fehler', 'error');
         }
@@ -447,7 +614,7 @@ async function wgControl(iface, cmd) {
     } catch (e) { toast('Fehler: ' + e.message, 'error'); }
 }
 
-// ── WireGuard Wizard (Schritt-fuer-Schritt Tunnel-Erstellung) ──
+// ── WireGuard Wizard (Schritt-für-Schritt Tunnel-Erstellung) ──
 let _wgWizData = {};
 
 async function wgWizardOpen() {
@@ -638,7 +805,7 @@ function wgWizStep2() {
         <div class="form-group">
             <label class="form-label">Allowed IPs</label>
             <input class="form-input" id="wgWizPeerIps" value="${_wgWizData.peerAllowedIps || '10.10.30.0/24'}" placeholder="10.10.30.0/24, 192.168.1.0/24">
-            <div class="form-hint">Netzwerke die ueber den Tunnel erreichbar sein sollen</div>
+            <div class="form-hint">Netzwerke die über den Tunnel erreichbar sein sollen</div>
         </div>
         <div class="form-row">
             <div class="form-group">
@@ -1034,7 +1201,7 @@ async function wgEditPeerSave() {
             toast('Peer aktualisiert');
             closeModal('wgEditPeerModal');
             loadWg();
-            wgShowRestartBanner(iface, iface + ' — Peer geändert. Restart empfohlen.');
+            wgShowRestartBanner(iface, iface + ' - Peer geändert. Restart empfohlen.');
         } else {
             toast(res.error || 'Fehler', 'error');
             if (btn) { btn.disabled = false; btn.textContent = 'Speichern'; }
@@ -1345,7 +1512,7 @@ async function wgAddPeerCreate() {
             toast(T.peer_added + (res.live ? ' (live)' : ''));
             closeModal('wgAddPeerModal');
             loadWg();
-            wgShowRestartBanner(d.iface, d.iface + ' — Peer hinzugefügt. Restart empfohlen.');
+            wgShowRestartBanner(d.iface, d.iface + ' - Peer hinzugefügt. Restart empfohlen.');
         } else {
             toast(res.error || 'Fehler', 'error');
             if (btn) { btn.disabled = false; btn.textContent = T.add_peer; }

@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.2.8 (2026-04-11)
+
+### Fixed
+- **Live cache bust for updated WireGuard UI text**: bumped the app version so deployments fetch the fresh `wireguard.js` bundle instead of serving a stale CDN-cached copy
+- **German UI text restored with umlauts**: reverted the accidental ASCII-only text downgrade in the visible Lite frontend strings
+
+## v1.2.7 (2026-04-11)
+
+### Added
+- **LXC reachability helper in WireGuard**: the WireGuard tab now audits running LXC containers for missing return routes to tunnel networks and can apply a direct fix for ifupdown-based guests
+
+### Fixed
+- **WireGuard UI cache bust for live updates**: JS modules now include the app version in their script URL so browser/CDN caches pick up new frontend code reliably
+
 ## v1.2.6 (2026-04-11)
 
 ### Fixed
